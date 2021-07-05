@@ -5,6 +5,6 @@ pip3 install torch==${TORCH}
 pip3 install torch-scatter -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
 pip3 install torch-sparse -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
 pip3 install torch-cluster -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html
-pip3 install torch-geometric
+pip3 install torch-geometric==1.7.2
 pip3 install -r requirements.txt
 echo "Install completed"
