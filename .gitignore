@@ -282,3 +282,4 @@ Thumbs.db
 # End of https://www.toptal.com/developers/gitignore/api/macos,python,pycharm+all,text
 
 
+deprecated/
