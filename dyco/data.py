@@ -15,7 +15,7 @@ from ogb.linkproppred import PygLinkPropPredDataset
 from ogb.nodeproppred import Evaluator as NodeEvaluator
 from ogb.linkproppred import Evaluator as LinkEvaluator
 
-from data_utils import to_singleton_data
+from data_utils import from_events_to_singleton_data
 
 
 class SingletonICEWS18(ICEWS18):
@@ -29,9 +29,9 @@ class SingletonICEWS18(ICEWS18):
     def process(self):
         s = self.splits
         data_list = super(ICEWS18, self).process()
-        torch.save(self.collate([to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
-        torch.save(self.collate([to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
-        torch.save(self.collate([to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
 
 
 class SingletonGDELT(GDELT):
@@ -46,9 +46,9 @@ class SingletonGDELT(GDELT):
     def process(self):
         s = self.splits
         data_list = super(GDELT, self).process()
-        torch.save(self.collate([to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
-        torch.save(self.collate([to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
-        torch.save(self.collate([to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
 
 
 def _get_dataset_at_cls_dir(cls, path, *args, **kwargs):
@@ -81,8 +81,8 @@ if __name__ == '__main__':
     #   Data(edge_index=[2, 2358104], edge_weight=[2358104, 1], edge_year=[2358104, 1], x=[235868, 128])
     #   Data(edge_index=[2, 30387995], node_year=[2927963, 1], x=[2927963, 128])
     # SingletonICEWS18, SingletonGDELT
-    #   Data(obj=[373018], rel=[373018], sub=[373018], t=[373018])
-    #   Data(obj=[1734399], rel=[1734399], sub=[1734399], t=[1734399])
+    #   Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
+    #   Data(edge_index=[2, 1734399], rel=[1734399, 1], t=[1734399, 1])
     # BitcoinOTC
     #   Data(edge_attr=[148], edge_index=[2, 148])
     _dataset = get_dynamic_dataset(
