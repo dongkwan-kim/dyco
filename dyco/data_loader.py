@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from torch_geometric.data import Data
 from torch_geometric.utils import subgraph
 
+from utils import torch_setdiff1d
 from dyco.data import get_dynamic_dataset
 from dyco.utils import to_index_chunks_by_values, subgraph_and_edge_mask
 
@@ -68,17 +69,19 @@ class DynamicGraphLoader(DataLoader):
                     indices_until_curr, remained_edge_index,
                     relabel_nodes=False, num_nodes=num_nodes)
                 remained_edge_index = remained_edge_index[:, ~edge_mask]  # edges not in sub_edge_index
-                x_index = indices
+                # x_index_all set-minus x_index_in_edges
+                solo_x_index = torch_setdiff1d(indices, torch.unique(sub_edge_index))
+
             # index chunks are edges.
             # e.g., Data(edge_index=[2, E], edge_weight=[E, 1], edge_year=[E, 1], x=[E, F])
             elif "edge" in time_name:
                 sub_edge_index = remained_edge_index[:, indices]
-                x_index = torch.unique(sub_edge_index, sorted=False)
+                solo_x_index = None
             else:
                 raise ValueError(f"Wrong time_name: {time_name}")
 
             time_stamp = torch.Tensor([curr_time])
-            data_at_curr = Data(time_stamp=time_stamp, edge_index=sub_edge_index, x_index=x_index)
+            data_at_curr = Data(time_stamp=time_stamp, edge_index=sub_edge_index, solo_x_index=solo_x_index)
             data_list.append(data_at_curr)
 
         if save_cache:

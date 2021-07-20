@@ -5,6 +5,13 @@ import torch
 from torch import Tensor
 from torch_geometric.utils import subgraph
 from torch_geometric.utils.num_nodes import maybe_num_nodes
+import numpy as np
+
+
+def torch_setdiff1d(tensor_1: Tensor, tensor_2: Tensor):
+    dtype, device = tensor_1.dtype, tensor_1.device
+    o = np.setdiff1d(tensor_1.numpy(), tensor_2.numpy())
+    return torch.tensor(o, dtype=dtype, device=device)
 
 
 def to_index_chunks_by_values(tensor_1d: Tensor) -> Dict[Any, Tensor]:
