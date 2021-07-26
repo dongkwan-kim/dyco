@@ -74,6 +74,7 @@ def get_dynamic_dataset(path, name: str, *args, **kwargs):
 
 if __name__ == '__main__':
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
+    NAME = "ogbl-collab"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -85,9 +86,17 @@ if __name__ == '__main__':
     #   Data(edge_index=[2, 1734399], rel=[1734399, 1], t=[1734399, 1])
     # BitcoinOTC
     #   Data(edge_attr=[148], edge_index=[2, 148])
-    _dataset = get_dynamic_dataset(
-        PATH, "SingletonICEWS18",
-    )
+    _dataset = get_dynamic_dataset(PATH, NAME)
     print(_dataset)
     for d in _dataset:
         print(d)
+
+    if NAME == "ogbl-collab":
+        _split_edge = _dataset.get_edge_split()
+        _pos_train_edge = _split_edge['train']['edge']
+        _pos_valid_edge = _split_edge['valid']['edge']
+        _neg_valid_edge = _split_edge['valid']['edge_neg']
+        _pos_test_edge = _split_edge['test']['edge']
+        _neg_test_edge = _split_edge['test']['edge_neg']
+        assert _pos_train_edge.size() == torch.Size([1179052, 2])
+        assert torch.allclose(_pos_train_edge.float().std(), _dataset[0].edge_index.float().std())
