@@ -38,18 +38,18 @@ class SnapshotData(Data):
 
     @property
     def num_nodes(self):
-        num_solo_nodes = self.solo_x_index.size(0) if exist_attr(self, "solo_x_index") else 0
+        num_isolated_nodes = self.iso_x_index.size(0) if exist_attr(self, "iso_x_index") else 0
         if self.edge_index.numel() == 0:  # no edge graphs.
-            return num_solo_nodes
+            return num_isolated_nodes
         elif self.is_num_nodes_inferred_by_edge_index():  # remove warnings.
-            return maybe_num_nodes(self.edge_index) + num_solo_nodes
+            return maybe_num_nodes(self.edge_index) + num_isolated_nodes
         else:
             return super(SnapshotData, self).num_nodes
 
     @classmethod
     def aggregate(cls, snapshot_sublist, t_position=-1, follow_batch=None, exclude_keys=None):
         """
-        :return: e.g., SnapshotData(edge_index=[2, E], solo_x_index=[S], t=[1])
+        :return: e.g., SnapshotData(edge_index=[2, E], iso_x_index=[S], t=[1])
         """
         # t is excluded from the batch construction, since we only add t of given t_position.
         data_at_t = Batch.from_data_list(
@@ -63,13 +63,13 @@ class SnapshotData(Data):
 
         # There can be nodes that were isolated, but not any more after
         # concatenating more than two different snapshots.
-        if len(snapshot_sublist) > 1 and snapshot_sublist[0].solo_x_index is not None:
+        if len(snapshot_sublist) > 1 and snapshot_sublist[0].iso_x_index is not None:
             edge_index_until_t = torch.cat([s.edge_index for s in snapshot_sublist], dim=-1)
             # The last is excluded, since nodes do not travel across the time.
-            solo_x_index_until_t_minus_1 = torch.cat([s.solo_x_index for s in snapshot_sublist[:-1]])
+            iso_x_index_until_t_minus_1 = torch.cat([s.iso_x_index for s in snapshot_sublist[:-1]])
             # x_index_all set-minus x_index_in_edges
-            data_aggr_at_t.solo_x_index = torch_setdiff1d(solo_x_index_until_t_minus_1,
-                                                          edge_index_until_t)
+            data_aggr_at_t.iso_x_index = torch_setdiff1d(iso_x_index_until_t_minus_1,
+                                                         edge_index_until_t)
 
         return data_aggr_at_t
 
@@ -79,7 +79,7 @@ class SnapshotData(Data):
                  num_nodes: int = None) -> Batch:
         """
         :param snapshot_sublist: List[SnapshotData],
-            e.g., SnapshotData(edge_index=[2, E], solo_x_index=[N], t=[1])
+            e.g., SnapshotData(edge_index=[2, E], iso_x_index=[N], t=[1])
         :param pernode_attrs: Dict[str, Tensor]
             e.g., {"x": tensor([[...], [...]]), "y": tensor([[...], [...]])}
         :param num_nodes: if pernode_attrs is not given, use this.
@@ -90,15 +90,15 @@ class SnapshotData(Data):
         if "x" in pernode_attrs:
             num_nodes = pernode_attrs["x"].size(0)
 
-        # Relabel edge_index, solo_x_index (optional) of SnapshotData in
+        # Relabel edge_index, iso_x_index (optional) of SnapshotData in
         # snapshot_sublist, and put pernode_attrs (e.g., x and y) to SnapshotData,
         # finally construct the Batch object with them.
         mask = torch.zeros(num_nodes, dtype=torch.bool)
         assoc = torch.full((num_nodes,), -1, dtype=torch.long)
         for data in snapshot_sublist:
 
-            if exist_attr(data, "solo_x_index"):
-                existing_nodes = torch.cat([data.edge_index.view(-1), data.solo_x_index])
+            if exist_attr(data, "iso_x_index"):
+                existing_nodes = torch.cat([data.edge_index.view(-1), data.iso_x_index])
             else:
                 existing_nodes = data.edge_index.view(-1)
 
@@ -106,8 +106,8 @@ class SnapshotData(Data):
             assoc[mask] = torch.arange(mask.sum())
             data.edge_index = assoc[data.edge_index]
 
-            if exist_attr(data, "solo_x_index"):
-                data.solo_x_index = assoc[data.solo_x_index]
+            if exist_attr(data, "iso_x_index"):
+                data.iso_x_index = assoc[data.iso_x_index]
 
             # Distribute pernode attributes, such as x, y, etc.
             for attr_name, pernode_tensor in pernode_attrs.items():
@@ -123,7 +123,7 @@ class SnapshotData(Data):
 
         b = Batch.from_data_list(
             snapshot_sublist,
-            follow_batch=["solo_x_index"], exclude_keys=["increase_num_nodes_for_index"],
+            follow_batch=["iso_x_index"], exclude_keys=["increase_num_nodes_for_index"],
         )
         return b
 
@@ -230,18 +230,18 @@ class SnapshotGraphLoader(DataLoader):
                     relabel_nodes=False, num_nodes=num_nodes)
                 remained_edge_index = remained_edge_index[:, ~edge_mask]  # edges not in sub_edge_index
                 # x_index_all set-minus x_index_in_edges
-                solo_x_index = torch_setdiff1d(indices, torch.unique(sub_edge_index))
+                iso_x_index = torch_setdiff1d(indices, torch.unique(sub_edge_index))
 
             # index chunks are edges.
             # e.g., Data(edge_index=[2, E], edge_weight=[E, 1], edge_year=[E, 1], x=[E, F])
             elif "edge" in time_name:
                 sub_edge_index = remained_edge_index[:, indices]
-                solo_x_index = None
+                iso_x_index = None
             else:
                 raise ValueError(f"Wrong time_name: {time_name}")
 
             t = torch.Tensor([curr_time])
-            data_at_curr = SnapshotData(t=t, edge_index=sub_edge_index, solo_x_index=solo_x_index)
+            data_at_curr = SnapshotData(t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index)
             data_list.append(data_at_curr)
 
         if save_cache:
