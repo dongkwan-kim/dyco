@@ -74,7 +74,7 @@ def get_dynamic_graph_dataset(path, name: str, *args, **kwargs):
 
 if __name__ == '__main__':
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "JODIEDataset/reddit"
+    NAME = "JODIEDataset/mooc"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -96,8 +96,13 @@ if __name__ == '__main__':
         print(torch.unique(_data.t))
 
     if NAME.startswith("JODIEDataset"):
+        from collections import Counter
         _data = _dataset[0]
         print(torch.unique(_data.t))
+        for i, (k, v) in enumerate(Counter(_data.t.tolist()).most_common()):
+            print(k, v)
+            if i > 100:
+                break
 
     if NAME == "ogbl-collab":
         _split_edge = _dataset.get_edge_split()
