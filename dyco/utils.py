@@ -8,6 +8,10 @@ from torch_geometric.utils.num_nodes import maybe_num_nodes
 import numpy as np
 
 
+def exist_attr(obj, name):
+    return hasattr(obj, name) and (getattr(obj, name) is not None)
+
+
 def torch_setdiff1d(tensor_1: Tensor, tensor_2: Tensor):
     dtype, device = tensor_1.dtype, tensor_1.device
     o = np.setdiff1d(tensor_1.numpy(), tensor_2.numpy())
