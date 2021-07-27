@@ -11,7 +11,7 @@ from termcolor import cprint
 from torch_geometric.data.dataloader import Collater
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 
-from data import get_dynamic_dataset
+from data import get_dynamic_graph_dataset
 from utils import torch_setdiff1d, to_index_chunks_by_values, subgraph_and_edge_mask, exist_attr
 
 
@@ -83,7 +83,10 @@ class SnapshotData(Data):
         :param pernode_attrs: Dict[str, Tensor]
             e.g., {"x": tensor([[...], [...]]), "y": tensor([[...], [...]])}
         :param num_nodes: if pernode_attrs is not given, use this.
-        :return:
+        :return: Batch,
+            e.g., Batch(batch=[26709], edge_index=[2, 48866],
+                        iso_x_index=[1747], iso_x_index_batch=[1747],
+                        ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
         """
         snapshot_sublist: List[SnapshotData]
         pernode_attrs = pernode_attrs or dict()
@@ -176,7 +179,7 @@ class SnapshotGraphLoader(DataLoader):
     def snapshot_path(self):
         return os.path.join(self.dataset.root, "snapshots.pt")
 
-    def __collate__(self, index_list):
+    def __collate__(self, index_list) -> Batch:
         # Construct (low, high) indices per batch
         indices_high = torch.Tensor(index_list).long() + 1
         indices_low = indices_high - self.S
@@ -251,7 +254,7 @@ class SnapshotGraphLoader(DataLoader):
         return data_list
 
 
-def get_dynamic_dataloader(dataset, name: str, stage: str, *args, **kwargs):
+def get_snapshot_graph_loader(dataset, name: str, stage: str, *args, **kwargs):
     assert stage in ["train", "valid", "test", "evaluation"]
     loader = SnapshotGraphLoader(
         dataset, loading_type=SnapshotGraphLoader.get_loading_type(name),
@@ -272,7 +275,7 @@ if __name__ == "__main__":
     # BitcoinOTC
     NAME = "ogbn-arxiv"
 
-    _dataset = get_dynamic_dataset(PATH, NAME)
-    _loader = get_dynamic_dataloader(_dataset, NAME, "train", batch_size=3, step_size=4)
+    _dataset = get_dynamic_graph_dataset(PATH, NAME)
+    _loader = get_snapshot_graph_loader(_dataset, NAME, "train", batch_size=3, step_size=4)
     for _batch in _loader:
         print(_batch)

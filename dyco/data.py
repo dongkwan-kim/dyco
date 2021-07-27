@@ -59,7 +59,7 @@ def _get_dataset_at_cls_dir(cls, path, *args, **kwargs):
         return cls(path_with_name, *args, **kwargs)
 
 
-def get_dynamic_dataset(path, name: str, *args, **kwargs):
+def get_dynamic_graph_dataset(path, name: str, *args, **kwargs):
     if name.startswith("JODIEDataset"):
         _, sub_name = name.split("/")
         return _get_dataset_at_cls_dir(JODIEDataset, path, sub_name, *args, **kwargs)
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     #   Data(edge_index=[2, 1734399], rel=[1734399, 1], t=[1734399, 1])
     # BitcoinOTC
     #   Data(edge_attr=[148], edge_index=[2, 148])
-    _dataset = get_dynamic_dataset(PATH, NAME)
+    _dataset = get_dynamic_graph_dataset(PATH, NAME)
     print(_dataset)
     for d in _dataset:
         print(d)
