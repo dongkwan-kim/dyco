@@ -147,7 +147,7 @@ class SnapshotGraphLoader(DataLoader):
                  follow_batch=None, exclude_keys=None,
                  **kwargs):
 
-        self.dataset = dataset
+        self._dataset = dataset
         self.loading_type = loading_type
         self.step_size = step_size
 
@@ -155,16 +155,25 @@ class SnapshotGraphLoader(DataLoader):
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
 
-        if self.loading_type == Loading.coarse:  # e.g., ogbn, ogbl
+        if self.loading_type == Loading.coarse:
+            # e.g., ogbn, ogbl, singleton*
             data: Data = dataset[0]
             assert len(dataset) == 1
-            assert hasattr(data, "node_year") or hasattr(data, "edge_year"), "No node_year or edge_year"
-            time_name = "node_year" if hasattr(data, "node_year") else "edge_year"
+            for attr_name in ["node_year", "edge_year", "t"]:
+                if exist_attr(data, attr_name):
+                    time_name = attr_name
+                    break
+            else:
+                raise AttributeError("No node_year or edge_year or t")
+
             # A complete snapshot at t is a cumulation of data_list from 0 -- t-1.
             self.snapshot_list: List[CoarseSnapshotData] = self.disassemble_to_multi_snapshots(
                 dataset[0], time_name, save_cache=True)
             self.num_snapshots = len(self.snapshot_list)
             self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
+            if "x" not in self.attr_requirements:
+                # Add x as indices.
+                self.attr_requirements["x"] = torch.arange(self.num_nodes).view(-1, 1)
 
         elif self.loading_type == Loading.fine:
             raise NotImplementedError
@@ -180,6 +189,10 @@ class SnapshotGraphLoader(DataLoader):
         )
 
     @property
+    def num_nodes(self):
+        return self._dataset.num_nodes
+
+    @property
     def B(self):
         return self.batch_size
 
@@ -189,7 +202,7 @@ class SnapshotGraphLoader(DataLoader):
 
     @property
     def snapshot_path(self):
-        return os.path.join(self.dataset.root, "snapshots.pt")
+        return os.path.join(self._dataset.root, "snapshots.pt")
 
     def __collate__(self, index_list) -> Batch:
         # Construct (low, high) indices per batch
@@ -228,15 +241,16 @@ class SnapshotGraphLoader(DataLoader):
             except Exception as e:
                 cprint(f"Load snapshots failed from {self.snapshot_path}, the error is {e}", "red")
 
-        time_step = getattr(data, time_name)  # e.g., node_year, edge_year
+        time_step = getattr(data, time_name)  # e.g., node_year, edge_year, t
 
         index_chunks_dict = to_index_chunks_by_values(time_step)  # Dict[Any, LongTensor]:
 
         remained_edge_index = data.edge_index.clone()
         indices_until_curr = None
-        num_nodes = data.x.size(0)
-        data_list = []
+        num_nodes = data.x.size(0) if exist_attr(data, "x") else None
+        data_list, kwg_for_data = [], {}
         for curr_time, indices in sorted(index_chunks_dict.items()):
+
             # index_chunks are nodes.
             if "node" in time_name:
                 indices_until_curr = indices if indices_until_curr is None else \
@@ -254,11 +268,22 @@ class SnapshotGraphLoader(DataLoader):
             elif "edge" in time_name:
                 sub_edge_index = remained_edge_index[:, indices]
                 iso_x_index = None
+
+            # index chunks are relations or events.
+            # e.g., Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
+            elif time_name == "t":
+                sub_edge_index = remained_edge_index[:, indices]
+                iso_x_index = None
+                if exist_attr(data, "rel"):
+                    kwg_for_data["rel"] = data.rel[indices]
+
             else:
                 raise ValueError(f"Wrong time_name: {time_name}")
 
             t = torch.Tensor([curr_time])
-            data_at_curr = CoarseSnapshotData(t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index)
+            data_at_curr = CoarseSnapshotData(
+                t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index,
+                **kwg_for_data)
             data_list.append(data_at_curr)
 
         if save_cache:
