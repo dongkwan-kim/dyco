@@ -1,6 +1,7 @@
 import os
 from pprint import pprint
-from typing import List, Dict
+from typing import List, Dict, Union
+from enum import Enum, auto
 
 import torch
 from torch import Tensor
@@ -15,8 +16,13 @@ from data import get_dynamic_graph_dataset
 from utils import torch_setdiff1d, to_index_chunks_by_values, subgraph_and_edge_mask, exist_attr
 
 
-class SnapshotData(Data):
+class Loading(Enum):
+    coarse = auto()
+    fine = auto()
 
+
+class CoarseSnapshotData(Data):
+    """CoarseSnapshotData has multiple nodes or edges per given time stamp"""
     def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos=None, normal=None, face=None,
                  increase_num_nodes_for_index=None, **kwargs):
         self.increase_num_nodes_for_index = increase_num_nodes_for_index
@@ -25,7 +31,7 @@ class SnapshotData(Data):
     def __inc__(self, key, value):
         if exist_attr(self, "increase_num_nodes_for_index") and self.increase_num_nodes_for_index:
             # original code: self.num_nodes if bool(re.search("(index|face)", key)) else 0
-            return super(SnapshotData, self).__inc__(key, value)
+            return super(CoarseSnapshotData, self).__inc__(key, value)
         else:
             return 0
 
@@ -44,13 +50,14 @@ class SnapshotData(Data):
         elif self.is_num_nodes_inferred_by_edge_index():  # remove warnings.
             return maybe_num_nodes(self.edge_index) + num_isolated_nodes
         else:
-            return super(SnapshotData, self).num_nodes
+            return super(CoarseSnapshotData, self).num_nodes
 
     @classmethod
     def aggregate(cls, snapshot_sublist, t_position=-1, follow_batch=None, exclude_keys=None):
         """
         :return: e.g., SnapshotData(edge_index=[2, E], iso_x_index=[S], t=[1])
         """
+        assert isinstance(snapshot_sublist[0], CoarseSnapshotData)
         # t is excluded from the batch construction, since we only add t of given t_position.
         data_at_t = Batch.from_data_list(
             snapshot_sublist,
@@ -88,7 +95,8 @@ class SnapshotData(Data):
                         iso_x_index=[1747], iso_x_index_batch=[1747],
                         ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
         """
-        snapshot_sublist: List[SnapshotData]
+        assert isinstance(snapshot_sublist[0], CoarseSnapshotData)
+        snapshot_sublist: List[CoarseSnapshotData]
         pernode_attrs = pernode_attrs or dict()
         if "x" in pernode_attrs:
             num_nodes = pernode_attrs["x"].size(0)
@@ -147,22 +155,26 @@ class SnapshotGraphLoader(DataLoader):
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
 
-        if self.loading_type == "single-to-multi":  # e.g., ogbn, ogbl
+        if self.loading_type == Loading.coarse:  # e.g., ogbn, ogbl
             data: Data = dataset[0]
             assert len(dataset) == 1
             assert hasattr(data, "node_year") or hasattr(data, "edge_year"), "No node_year or edge_year"
             time_name = "node_year" if hasattr(data, "node_year") else "edge_year"
             # A complete snapshot at t is a cumulation of data_list from 0 -- t-1.
-            self.snapshot_list = self.disassemble_to_multi_snapshots(dataset[0], time_name, save_cache=True)
-            self.pernode_attrs = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
-        elif self.loading_type == "already-multi":
+            self.snapshot_list: List[CoarseSnapshotData] = self.disassemble_to_multi_snapshots(
+                dataset[0], time_name, save_cache=True)
+            self.num_snapshots = len(self.snapshot_list)
+            self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
+
+        elif self.loading_type == Loading.fine:
             raise NotImplementedError
+
         else:  # others:
             raise ValueError("Wrong loading type: {}".format(self.loading_type))
 
         # indices are sampled from [step_size - 1, step_size, ..., len(snapshots) - 1]
         super(SnapshotGraphLoader, self).__init__(
-            range(self.step_size - 1, len(self.snapshot_list)),
+            range(self.step_size - 1, self.num_snapshots),
             batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
             collate_fn=self.__collate__, **kwargs,
         )
@@ -187,23 +199,25 @@ class SnapshotGraphLoader(DataLoader):
 
         # Convert indices to snapshots, then collate to single Batch.
         data_at_t_list = []
-        for low, high in indices_ranges:
-            snapshot_sublist = self.snapshot_list[low:high]
-            data_at_t_within_steps = SnapshotData.aggregate(snapshot_sublist)
-            data_at_t_list.append(data_at_t_within_steps)
-
-        b = SnapshotData.to_batch(data_at_t_list, self.pernode_attrs)
-        return b
+        if self.loading_type == Loading.coarse:
+            for low, high in indices_ranges:
+                snapshot_sublist = self.snapshot_list[low:high]
+                data_at_t_within_steps = CoarseSnapshotData.aggregate(snapshot_sublist)
+                data_at_t_list.append(data_at_t_within_steps)
+            b = CoarseSnapshotData.to_batch(data_at_t_list, self.attr_requirements)
+            return b
+        else:
+            raise ValueError
 
     @staticmethod
-    def get_loading_type(dataset_name: str) -> str:
-        if dataset_name.startswith("ogb"):
-            return "single-to-multi"
+    def get_loading_type(dataset_name: str) -> Loading:
+        if dataset_name.startswith("ogb") or dataset_name.startswith("Singleton"):
+            return Loading.coarse
         else:
             raise ValueError("Wrong name: {}".format(dataset_name))
 
     def disassemble_to_multi_snapshots(self, data: Data, time_name: str,
-                                       save_cache: bool = True) -> List[SnapshotData]:
+                                       save_cache: bool = True) -> List[CoarseSnapshotData]:
         if save_cache:
             try:
                 snapshots = torch.load(self.snapshot_path)
@@ -244,7 +258,7 @@ class SnapshotGraphLoader(DataLoader):
                 raise ValueError(f"Wrong time_name: {time_name}")
 
             t = torch.Tensor([curr_time])
-            data_at_curr = SnapshotData(t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index)
+            data_at_curr = CoarseSnapshotData(t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index)
             data_list.append(data_at_curr)
 
         if save_cache:
@@ -269,11 +283,11 @@ if __name__ == "__main__":
     seed_everything(43)
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
+    NAME = "SingletonICEWS18"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
     # BitcoinOTC
-    NAME = "ogbn-arxiv"
 
     _dataset = get_dynamic_graph_dataset(PATH, NAME)
     _loader = get_snapshot_graph_loader(_dataset, NAME, "train", batch_size=3, step_size=4)
