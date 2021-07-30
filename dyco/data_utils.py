@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Dict
+from typing import List, Dict, Union
 
 import torch
 from torch import Tensor
@@ -139,8 +139,8 @@ def to_singleton_data(data_list) -> Data:
 
 def from_events_to_singleton_data(data_list: List[Data]) -> Data:
     """Convert (subject entity, relation, object, entity, time)
-        e.g., Data(obj=[373018], rel=[373018], sub=[373018], t=[373018]
-        --> (edge_index=[sub, obj], ...)
+        e.g., Data(obj=[373018], rel=[373018], sub=[373018], t=[373018])
+        --> Data(edge_index=[sub, obj], ...)
     :param data_list: List[Data]
     :return: Data,
         e.g., Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
@@ -149,3 +149,62 @@ def from_events_to_singleton_data(data_list: List[Data]) -> Data:
     edge_index = torch.stack([s_data.sub, s_data.obj])
     rel, t = s_data.rel.view(-1, 1), s_data.t.view(-1, 1)
     return Data(edge_index=edge_index, rel=rel, t=t)
+
+
+def from_events_to_temporal_data(data_list: List[Data]) -> TemporalData:
+    """Convert (subject entity, relation, object, entity, time)
+        e.g., Data(obj=[373018], rel=[373018], sub=[373018], t=[373018])
+        --> TemporalData
+    :param data_list: List[Data]
+    :return: TemporalData,
+        e.g., TemporalData(dst=[373018], src=[373018], t=[373018], y=[373018])
+    """
+    s_data = to_singleton_data(data_list)
+    return TemporalData(src=s_data.sub, dst=s_data.obj, t=s_data.t, y=s_data.rel)
+
+
+def from_singleton_to_temporal_data(data_or_data_list: Union[Data, List[Data]]) -> TemporalData:
+    """Convert (edge_index=[sub, obj], ...)
+        e.g., Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
+        --> Data(src=sub, dst=obj)
+    :param data_or_data_list: List[Data] or Data
+    :return: TemporalData,
+        e.g., TemporalData(dst=[373018], src=[373018], t=[373018], y=[373018])
+    """
+    data = data_or_data_list if isinstance(data_or_data_list, Data) else data_or_data_list[0]
+    sub, obj = data.edge_index
+    return TemporalData(src=sub, dst=obj, t=data.t.squeeze(), y=data.rel.squeeze())
+
+
+def from_ogb_data_to_temporal_data(data_or_data_list: Union[Data, List[Data]]) -> TemporalData:
+    """Convert Data with node_year or edge_year
+        e.g., Data(edge_index=[2, 1166243], node_year=[169343, 1], x=[169343, 128], y=[169343, 1])
+              Data(edge_index=[2, 2358104], edge_weight=[2358104, 1], edge_year=[2358104, 1], x=[235868, 128])
+              Data(edge_index=[2, 30387995], node_year=[2927963, 1], x=[2927963, 128])
+        --> TemporalData
+    :param data_or_data_list: List[Data] or Data
+    :return: TemporalData,
+        e.g., TemporalData(dst=[E], src=[E], t=[E], x=[N, F])
+    """
+    data = data_or_data_list if isinstance(data_or_data_list, Data) else data_or_data_list[0]
+    src, dst = data.edge_index
+    t = (data.node_year if hasattr(data, "node_year") else data.edge_year).squeeze()
+    kwargs = {k: getattr(data, k).squeeze() for k in data.keys
+              if k not in ["edge_index", "node_year", "edge_year"]}
+    return TemporalData(src=src, dst=dst, t=t, **kwargs)
+
+
+class ToTemporalData(object):
+
+    def __call__(self, data):
+        if isinstance(data, TemporalData):  # already TemporalData
+            return data
+        elif exist_attr(data, "node_year") or exist_attr(data, "edge_year"):  # ogb
+            return from_ogb_data_to_temporal_data(data)
+        elif exist_attr(data, "rel") and data.rel.numel() > 1:  # tkg
+            return from_singleton_to_temporal_data(data)
+        else:
+            raise ValueError
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}()'
