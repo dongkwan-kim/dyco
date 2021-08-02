@@ -62,8 +62,10 @@ def _get_dataset_at_cls_dir(cls, path, transform=None, pre_transform=None, *args
 def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=None, *args, **kwargs):
     if name.startswith("JODIEDataset"):
         _, sub_name = name.split("/")
-        return _get_dataset_at_cls_dir(JODIEDataset, path, transform=transform, pre_transform=pre_transform,
-                                       name=sub_name, *args, **kwargs)
+        jodie_dataset = _get_dataset_at_cls_dir(JODIEDataset, path, transform=transform, pre_transform=pre_transform,
+                                                name=sub_name, *args, **kwargs)
+        jodie_dataset.num_nodes = jodie_dataset[0].dst.max().item() + 1
+        return jodie_dataset
     elif name in ["BitcoinOTC", "SingletonICEWS18", "SingletonGDELT"]:
         return _get_dataset_at_cls_dir(eval(name), path, transform=transform, pre_transform=pre_transform,
                                        *args, **kwargs)
@@ -77,7 +79,7 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
 
 if __name__ == '__main__':
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "SingletonGDELT"
+    NAME = "JODIEDataset/wikipedia"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -107,7 +109,7 @@ if __name__ == '__main__':
         print(torch.unique(_data.t))
         for i, (k, v) in enumerate(Counter(_data.t.tolist()).most_common()):
             print(k, v)
-            if i > 100:
+            if i > 20:
                 break
 
     if NAME == "ogbl-collab":
