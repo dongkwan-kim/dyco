@@ -6,6 +6,15 @@ from torch import Tensor
 from torch_geometric.utils import subgraph
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 import numpy as np
+from tqdm import tqdm
+
+
+def startswith_any(string: str, prefix_list, *args, **kwargs) -> bool:
+    for prefix in prefix_list:
+        if string.startswith(prefix, *args, **kwargs):
+            return True
+    else:
+        return False
 
 
 def exist_attr(obj, name):
@@ -18,11 +27,12 @@ def torch_setdiff1d(tensor_1: Tensor, tensor_2: Tensor):
     return torch.tensor(o, dtype=dtype, device=device)
 
 
-def to_index_chunks_by_values(tensor_1d: Tensor) -> Dict[Any, Tensor]:
+def to_index_chunks_by_values(tensor_1d: Tensor, verbose=True) -> Dict[Any, Tensor]:
     tensor_1d = tensor_1d.flatten()
     index_chunks_dict = dict()
     # todo: there can be more efficient way, but it might not be necessary.
-    for v in torch.unique(tensor_1d):
+    v_generator = tqdm(torch.unique(tensor_1d), desc="index_chunks") if verbose else torch.unique(tensor_1d)
+    for v in v_generator:
         v = v.item()
         index_chunk = torch.nonzero(tensor_1d == v).flatten()
         index_chunks_dict[v] = index_chunk
