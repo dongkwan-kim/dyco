@@ -5,14 +5,16 @@ from typing import List, Dict, Union
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
-from torch_geometric.data import Data, Batch
+from torch_geometric.data import Data, Batch, TemporalData
 
 from termcolor import cprint
 from torch_geometric.data.dataloader import Collater
+from tqdm import tqdm
 
 from data import get_dynamic_graph_dataset
-from data_utils import Loading, CoarseSnapshotData
-from utils import torch_setdiff1d, to_index_chunks_by_values, subgraph_and_edge_mask, exist_attr
+from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data
+from utils import (torch_setdiff1d, to_index_chunks_by_values,
+                   subgraph_and_edge_mask, exist_attr, startswith_any)
 
 
 class SnapshotGraphLoader(DataLoader):
@@ -34,6 +36,8 @@ class SnapshotGraphLoader(DataLoader):
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
             data: Data = dataset[0]
+            if isinstance(data, TemporalData):
+                data: Data = from_temporal_to_singleton_data(data)
             assert len(dataset) == 1
             for attr_name in ["node_year", "edge_year", "t"]:
                 if exist_attr(data, attr_name):
@@ -44,7 +48,7 @@ class SnapshotGraphLoader(DataLoader):
 
             # A complete snapshot at t is a cumulation of data_list from 0 -- t-1.
             self.snapshot_list: List[CoarseSnapshotData] = self.disassemble_to_multi_snapshots(
-                dataset[0], time_name, save_cache=True)
+                data, time_name, save_cache=True)
             self.num_snapshots = len(self.snapshot_list)
             self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
             if "x" not in self.attr_requirements:
@@ -78,7 +82,7 @@ class SnapshotGraphLoader(DataLoader):
 
     @property
     def snapshot_path(self):
-        return os.path.join(self._dataset.root, "snapshots.pt")
+        return os.path.join(self._dataset.processed_dir, "snapshots.pt")
 
     def __collate__(self, index_list) -> Batch:
         # Construct (low, high) indices per batch
@@ -100,7 +104,7 @@ class SnapshotGraphLoader(DataLoader):
 
     @staticmethod
     def get_loading_type(dataset_name: str) -> Loading:
-        if dataset_name.startswith("ogb") or dataset_name.startswith("Singleton"):
+        if startswith_any(dataset_name, ["ogb", "Singleton", "JODIEDataset"]):
             return Loading.coarse
         else:
             raise ValueError("Wrong name: {}".format(dataset_name))
@@ -150,9 +154,10 @@ class SnapshotGraphLoader(DataLoader):
             elif time_name == "t":
                 sub_edge_index = remained_edge_index[:, indices]
                 iso_x_index = None
-                if exist_attr(data, "rel"):
-                    kwg_for_data["rel"] = data.rel[indices]
-
+                for attr_name in ["rel", "edge_attr", "edge_y"]:
+                    if exist_attr(data, attr_name):
+                        o = getattr(data, attr_name)
+                        kwg_for_data[attr_name] = o[indices]
             else:
                 raise ValueError(f"Wrong time_name: {time_name}")
 
@@ -184,7 +189,7 @@ if __name__ == "__main__":
     seed_everything(43)
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "SingletonICEWS18"
+    NAME = "JODIEDataset/wikipedia"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -192,5 +197,8 @@ if __name__ == "__main__":
 
     _dataset = get_dynamic_graph_dataset(PATH, NAME)
     _loader = get_snapshot_graph_loader(_dataset, NAME, "train", batch_size=3, step_size=4)
-    for _batch in _loader:
-        print(_batch)
+    for i, _batch in enumerate(tqdm(_loader)):
+        if i == 0:
+            print("-" * 7)
+        if i < 5:
+            print(_batch)

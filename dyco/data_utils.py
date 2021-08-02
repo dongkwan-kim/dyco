@@ -16,6 +16,7 @@ class Loading(Enum):
 
 class CoarseSnapshotData(Data):
     """CoarseSnapshotData has multiple nodes or edges per given time stamp"""
+
     def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos=None, normal=None, face=None,
                  increase_num_nodes_for_index=None, **kwargs):
         self.increase_num_nodes_for_index = increase_num_nodes_for_index
@@ -151,6 +152,20 @@ def from_events_to_singleton_data(data_list: List[Data]) -> Data:
     return Data(edge_index=edge_index, rel=rel, t=t)
 
 
+def from_temporal_to_singleton_data(data_or_data_list: Union[TemporalData, List[TemporalData]]) -> Data:
+    """Convert (dst, src, msg, t, y)
+        e.g., TemporalData(dst=[E], msg=[E, F], src=[E], t=[E], y=[E])
+        --> Data(edge_index=[src, dst], ...)
+    :param data_or_data_list: List[TemporalData] or TemporalData
+    :return: Data,
+        e.g., Data(edge_attr=[157474, 172], edge_index=[2, 157474], t=[157474, 1], y=[157474, 1])
+    """
+    t_data = data_or_data_list if isinstance(data_or_data_list, TemporalData) else data_or_data_list[0]
+    edge_index = torch.stack([t_data.src, t_data.dst])
+    t, edge_y = t_data.t.view(-1, 1), t_data.y.view(-1, 1)
+    return Data(edge_index=edge_index, edge_attr=t_data.msg, t=t, edge_y=edge_y)
+
+
 def from_events_to_temporal_data(data_list: List[Data]) -> TemporalData:
     """Convert (subject entity, relation, object, entity, time)
         e.g., Data(obj=[373018], rel=[373018], sub=[373018], t=[373018])
@@ -205,6 +220,20 @@ class ToTemporalData(object):
             return from_singleton_to_temporal_data(data)
         else:
             raise ValueError
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}()'
+
+
+class FromTemporalData(object):
+
+    def __call__(self, data):
+        if isinstance(data, Data):  # already data
+            return data
+        elif isinstance(data, TemporalData):
+            return from_temporal_to_singleton_data(data)
+        else:
+            raise TypeError("Wrong type: {}".format(type(data)))
 
     def __repr__(self):
         return f'{self.__class__.__name__}()'
