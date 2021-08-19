@@ -1,10 +1,17 @@
+import time
 from pprint import pprint
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 import torch
+from termcolor import cprint
 from torch import Tensor
+import torch.nn.functional as F
+import torch.nn as nn
+
 from torch_geometric.utils import subgraph
 from torch_geometric.utils.num_nodes import maybe_num_nodes
+from torch_geometric.utils import to_dense_batch, softmax
+
 import numpy as np
 from tqdm import tqdm
 
@@ -19,6 +26,62 @@ def startswith_any(string: str, prefix_list, *args, **kwargs) -> bool:
 
 def exist_attr(obj, name):
     return hasattr(obj, name) and (getattr(obj, name) is not None)
+
+
+def del_attrs(o, keys: List[str]):
+    for k in keys:
+        delattr(o, k)
+
+
+def debug_with_exit(func):  # Decorator
+    def wrapped(*args, **kwargs):
+        print()
+        cprint("===== DEBUG ON {}=====".format(func.__name__), "red", "on_yellow")
+        func(*args, **kwargs)
+        cprint("=====   END  =====", "red", "on_yellow")
+        exit()
+
+    return wrapped
+
+
+def print_time(method):  # Decorator
+    """From https://medium.com/pythonhive/python-decorator-to-measure-the-execution-time-of-methods-fa04cb6bb36d"""
+
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        cprint('%r  %2.2f s' % (method.__name__, (te - ts)), "red")
+        return result
+
+    return timed
+
+
+# PyTorch/PyTorch Geometric related methods
+
+
+def act(tensor, activation_name, **kwargs):
+    if activation_name == "relu":
+        return F.relu(tensor, **kwargs)
+    elif activation_name == "elu":
+        return F.elu(tensor, **kwargs)
+    elif activation_name == "leaky_relu":
+        return F.leaky_relu(tensor, **kwargs)
+    elif activation_name == "sigmoid":
+        return torch.sigmoid(tensor)
+    elif activation_name == "tanh":
+        return torch.tanh(tensor)
+    else:
+        raise ValueError(f"Wrong activation name: {activation_name}")
+
+
+def get_extra_repr(model, important_args):
+    return "\n".join(["{}={},".format(a, getattr(model, a)) for a in important_args
+                      if a in model.__dict__])
+
+
+def count_parameters(model: nn.Module):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def torch_setdiff1d(tensor_1: Tensor, tensor_2: Tensor):
@@ -37,6 +100,25 @@ def to_index_chunks_by_values(tensor_1d: Tensor, verbose=True) -> Dict[Any, Tens
         index_chunk = torch.nonzero(tensor_1d == v).flatten()
         index_chunks_dict[v] = index_chunk
     return index_chunks_dict
+
+
+def softmax_half(src: Tensor, index: Tensor, num_nodes: Optional[int] = None) -> Tensor:
+    r"""softmax that supports torch.half tensors.
+        See torch_geometric.utils.softmax for more details."""
+    is_half = (src.dtype == torch.half)
+    src = src.float() if is_half else src
+    smx = softmax(src, index, num_nodes=num_nodes)
+    return smx.half() if is_half else smx
+
+
+def to_multiple_dense_batches(
+        x_list: List[Tensor],
+        batch=None, fill_value=0, max_num_nodes=None
+) -> Tuple[List[Tensor], Tensor]:
+    cat_x = torch.cat(x_list, dim=-1)
+    cat_out, mask = to_dense_batch(cat_x, batch, fill_value, max_num_nodes)
+    # [B, N, L*F] -> [B, N, F] * L
+    return torch.chunk(cat_out, len(x_list), dim=-1), mask
 
 
 def subgraph_and_edge_mask(subset, edge_index, edge_attr=None, relabel_nodes=False,
@@ -76,6 +158,9 @@ def subgraph_and_edge_mask(subset, edge_index, edge_attr=None, relabel_nodes=Fal
 if __name__ == '__main__':
 
     METHOD = "sort_and_relabel"
+
+    from pytorch_lightning import seed_everything
+    seed_everything(42)
 
     if METHOD == "to_index_chunks_by_values":
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
