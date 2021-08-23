@@ -189,7 +189,7 @@ if __name__ == "__main__":
     seed_everything(43)
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "JODIEDataset/wikipedia"
+    NAME = "ogbn-arxiv"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -198,7 +198,11 @@ if __name__ == "__main__":
     _dataset = get_dynamic_graph_dataset(PATH, NAME)
     _loader = get_snapshot_graph_loader(_dataset, NAME, "train", batch_size=3, step_size=4)
     for i, _batch in enumerate(tqdm(_loader)):
-        if i == 0:
-            print("-" * 7)
-        if i < 5:
-            print(_batch)
+        # e.g.,
+        # Batch(batch=[26709], edge_index=[2, 48866], iso_x_index=[1747], iso_x_index_batch=[1747],
+        #       ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
+        if i < 2:
+            print("\n t =", _batch.t, end=" / ")
+            cprint(_batch, "yellow")
+        else:
+            exit()
