@@ -11,7 +11,7 @@ from termcolor import cprint
 from torch_geometric.data.dataloader import Collater
 from tqdm import tqdm
 
-from data import get_dynamic_graph_dataset
+from dataset import get_dynamic_graph_dataset
 from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data
 from utils import (torch_setdiff1d, to_index_chunks_by_values,
                    subgraph_and_edge_mask, exist_attr, startswith_any)
