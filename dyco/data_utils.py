@@ -4,7 +4,10 @@ from typing import List, Dict, Union
 import torch
 from torch import Tensor
 from torch_geometric.data import Batch, Data, TemporalData
+from torch_geometric.transforms import ToSparseTensor
+from torch_geometric.utils import to_undirected
 from torch_geometric.utils.num_nodes import maybe_num_nodes
+from torch_sparse import SparseTensor
 
 from utils import exist_attr, torch_setdiff1d
 
@@ -223,6 +226,44 @@ class ToTemporalData(object):
 
     def __repr__(self):
         return f'{self.__class__.__name__}()'
+
+
+class ToSymSparseTensor(ToSparseTensor):
+
+    def __call__(self, data):
+        data = super().__call__(data)
+        data.adj_t = data.adj_t.to_symmetric()
+        return data
+
+
+class UseValEdgesAsInput(object):
+    """Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L222-L236"""
+
+    def __init__(self, to_sparse_tensor=True, del_edge_weight=True):
+        self.to_sparse_tensor = to_sparse_tensor
+        self.del_edge_weight = del_edge_weight
+        self._val_edge_index = None
+
+    def set_val_edge_index(self, split_idx):
+        self._val_edge_index = split_idx['valid']['edge'].t()
+
+    def __call__(self, data):
+        assert self._val_edge_index is not None
+        edge_index = data.edge_index
+        if not self.del_edge_weight:
+            data.edge_weight = data.edge_weight.view(-1).to(torch.float)
+        else:
+            del data.edge_weight
+
+        full_edge_index = torch.cat([edge_index, self._val_edge_index], dim=-1)
+        if self.to_sparse_tensor:
+            data = ToSparseTensor()(data)
+            data.full_adj_t = SparseTensor.from_edge_index(full_edge_index).t()
+            data.full_adj_t = data.full_adj_t.to_symmetric()
+        else:
+            data.full_edge_index = to_undirected(full_edge_index, num_nodes=data.x.size(0))
+
+        return data
 
 
 class FromTemporalData(object):
