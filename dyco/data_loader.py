@@ -19,7 +19,8 @@ from utils import (torch_setdiff1d, to_index_chunks_by_values,
 
 class SnapshotGraphLoader(DataLoader):
 
-    def __init__(self, dataset, loading_type,
+    def __init__(self, dataset,
+                 loading_type=Loading.coarse,
                  batch_size=1, step_size=1,
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
