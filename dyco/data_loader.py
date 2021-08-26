@@ -19,14 +19,15 @@ from utils import (torch_setdiff1d, to_index_chunks_by_values,
 
 class SnapshotGraphLoader(DataLoader):
 
-    def __init__(self, dataset,
+    def __init__(self, data: Union[Data, TemporalData, Batch],
                  loading_type=Loading.coarse,
                  batch_size=1, step_size=1,
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
+                 snapshot_dir="./", num_nodes=None,
                  **kwargs):
 
-        self._dataset = dataset
+        self._data = data
         self.loading_type = loading_type
         self.step_size = step_size
 
@@ -34,12 +35,12 @@ class SnapshotGraphLoader(DataLoader):
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
 
+        self.snapshot_dir = snapshot_dir
+
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
-            data: Data = dataset[0]
             if isinstance(data, TemporalData):
                 data: Data = from_temporal_to_singleton_data(data)
-            assert len(dataset) == 1
             for attr_name in ["node_year", "edge_year", "t"]:
                 if exist_attr(data, attr_name):
                     time_name = attr_name
@@ -54,7 +55,8 @@ class SnapshotGraphLoader(DataLoader):
             self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
             if "x" not in self.attr_requirements:
                 # Add x as indices.
-                self.attr_requirements["x"] = torch.arange(self.num_nodes).view(-1, 1)
+                assert num_nodes is not None
+                self.attr_requirements["x"] = torch.arange(num_nodes).view(-1, 1)
 
         elif self.loading_type == Loading.fine:
             raise NotImplementedError
@@ -69,9 +71,21 @@ class SnapshotGraphLoader(DataLoader):
             collate_fn=self.__collate__, **kwargs,
         )
 
-    @property
-    def num_nodes(self):
-        return self._dataset.num_nodes
+    @staticmethod
+    def get_kwargs_from_dataset(dataset) -> dict:
+        try:
+            num_nodes = dataset.num_nodes
+        except AttributeError:
+            num_nodes = None
+        return dict(snapshot_dir=dataset.processed_dir,
+                    num_nodes=num_nodes)
+
+    @staticmethod
+    def get_loading_type(dataset_name: str) -> Loading:
+        if startswith_any(dataset_name, ["ogb", "Singleton", "JODIEDataset"]):
+            return Loading.coarse
+        else:
+            raise ValueError("Wrong name: {}".format(dataset_name))
 
     @property
     def B(self):
@@ -83,7 +97,7 @@ class SnapshotGraphLoader(DataLoader):
 
     @property
     def snapshot_path(self):
-        return os.path.join(self._dataset.processed_dir, "snapshots.pt")
+        return os.path.join(self.snapshot_dir, "snapshots.pt")
 
     def __collate__(self, index_list) -> Batch:
         # Construct (low, high) indices per batch
@@ -102,13 +116,6 @@ class SnapshotGraphLoader(DataLoader):
             return b
         else:
             raise ValueError
-
-    @staticmethod
-    def get_loading_type(dataset_name: str) -> Loading:
-        if startswith_any(dataset_name, ["ogb", "Singleton", "JODIEDataset"]):
-            return Loading.coarse
-        else:
-            raise ValueError("Wrong name: {}".format(dataset_name))
 
     def disassemble_to_multi_snapshots(self, data: Data, time_name: str,
                                        save_cache: bool = True) -> List[CoarseSnapshotData]:
@@ -197,7 +204,15 @@ if __name__ == "__main__":
     # BitcoinOTC
 
     _dataset = get_dynamic_graph_dataset(PATH, NAME)
-    _loader = get_snapshot_graph_loader(_dataset, NAME, "train", batch_size=3, step_size=4)
+    if isinstance(_dataset, tuple):
+        _dataset = _dataset[0]
+
+    _loader = SnapshotGraphLoader(
+        _dataset[0],
+        loading_type=SnapshotGraphLoader.get_loading_type(NAME),
+        batch_size=3, step_size=4,
+        **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
+    )
     for i, _batch in enumerate(tqdm(_loader)):
         # e.g.,
         # Batch(batch=[26709], edge_index=[2, 48866], iso_x_index=[1747], iso_x_index_batch=[1747],
