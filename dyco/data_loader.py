@@ -9,12 +9,13 @@ from torch_geometric.data import Data, Batch, TemporalData
 
 from termcolor import cprint
 from torch_geometric.data.dataloader import Collater
+from torch_geometric.utils import add_self_loops
 from tqdm import tqdm
 
 from dataset import get_dynamic_graph_dataset
 from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data
 from utils import (torch_setdiff1d, to_index_chunks_by_values,
-                   subgraph_and_edge_mask, exist_attr, startswith_any)
+                   subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask)
 
 
 class SnapshotGraphLoader(DataLoader):
@@ -25,7 +26,7 @@ class SnapshotGraphLoader(DataLoader):
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
                  transform=None,
-                 snapshot_dir="./", num_nodes=None,
+                 snapshot_dir="./", num_nodes=None, node_split_idx=None,
                  **kwargs):
 
         self._data = data
@@ -36,8 +37,11 @@ class SnapshotGraphLoader(DataLoader):
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
 
-        self.snapshot_dir = snapshot_dir
         self.transform = transform
+        self.snapshot_dir = snapshot_dir
+
+        node_split_mask = idx_to_mask(node_split_idx, num_nodes)  # for ogbn-arxiv
+        data.train_mask = node_split_mask["train"]
 
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
@@ -54,7 +58,7 @@ class SnapshotGraphLoader(DataLoader):
             self.snapshot_list: List[CoarseSnapshotData] = self.disassemble_to_multi_snapshots(
                 data, time_name, save_cache=True)
             self.num_snapshots = len(self.snapshot_list)
-            self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y"]}
+            self.attr_requirements = {k: getattr(data, k) for k in data.keys if k in ["x", "y", "train_mask"]}
             if "x" not in self.attr_requirements:
                 # Add x as indices.
                 assert num_nodes is not None
@@ -79,8 +83,13 @@ class SnapshotGraphLoader(DataLoader):
             num_nodes = dataset.num_nodes
         except AttributeError:
             num_nodes = None
+        try:
+            split_idx = dataset.get_idx_split()
+        except AttributeError:
+            split_idx = None
         return dict(snapshot_dir=dataset.processed_dir,
-                    num_nodes=num_nodes)
+                    num_nodes=num_nodes,
+                    node_split_idx=split_idx)
 
     @staticmethod
     def get_loading_type(dataset_name: str) -> Loading:

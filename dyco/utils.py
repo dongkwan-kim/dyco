@@ -155,6 +155,16 @@ def subgraph_and_edge_mask(subset, edge_index, edge_attr=None, relabel_nodes=Fal
     return edge_index, edge_attr, mask
 
 
+def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
+    mask_dict = dict()
+    for k, idx in idx_dict.items():
+        # idx: LongTensor
+        mask = torch.zeros((num_nodes,), dtype=torch.bool)
+        mask[idx] = 1
+        mask_dict[k] = mask
+    return mask_dict
+
+
 if __name__ == '__main__':
 
     METHOD = "sort_and_relabel"
