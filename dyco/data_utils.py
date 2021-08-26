@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 from torch_geometric.data import Batch, Data, TemporalData
 from torch_geometric.transforms import ToSparseTensor
-from torch_geometric.utils import to_undirected
+from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_sparse import SparseTensor
 
@@ -110,12 +110,15 @@ class CoarseSnapshotData(Data):
             else:
                 existing_nodes = data.edge_index.view(-1)
 
+            # Relabeling
             mask[existing_nodes] = 1
-            assoc[mask] = torch.arange(mask.sum())
+            snapshot_num_nodes = mask.sum()
+            assoc[mask] = torch.arange(snapshot_num_nodes)
             data.edge_index = assoc[data.edge_index]
 
+            # Add isolated nodes as self-loops.
             if exist_attr(data, "iso_x_index"):
-                data.iso_x_index = assoc[data.iso_x_index]
+                data.edge_index = add_self_loops(data.edge_index, num_nodes=snapshot_num_nodes)[0]
 
             # Distribute pernode attributes, such as x, y, etc.
             for attr_name, pernode_tensor in pernode_attrs.items():
@@ -131,7 +134,7 @@ class CoarseSnapshotData(Data):
 
         b = Batch.from_data_list(
             snapshot_sublist,
-            follow_batch=["iso_x_index"], exclude_keys=["increase_num_nodes_for_index"],
+            exclude_keys=["increase_num_nodes_for_index", "iso_x_index"],
         )
         return b
 
