@@ -40,8 +40,9 @@ class SnapshotGraphLoader(DataLoader):
         self.transform = transform
         self.snapshot_dir = snapshot_dir
 
-        node_split_mask = idx_to_mask(node_split_idx, num_nodes)  # for ogbn-arxiv
-        data.train_mask = node_split_mask["train"]
+        if node_split_idx is not None:  # for ogbn-arxiv
+            node_split_mask = idx_to_mask(node_split_idx, num_nodes)
+            data.train_mask = node_split_mask["train"]
 
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
