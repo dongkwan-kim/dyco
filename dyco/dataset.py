@@ -88,15 +88,17 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
         raise NotImplementedError
     elif name.startswith("ogb"):
         cls = PygNodePropPredDataset if name.startswith("ogbn") else PygLinkPropPredDataset
-        return _get_dataset_at_cls_dir(cls, path, transform=transform, pre_transform=pre_transform,
-                                       name=name, *args, **kwargs)
+        ogb_dataset = _get_dataset_at_cls_dir(cls, path, transform=transform, pre_transform=pre_transform,
+                                              name=name, *args, **kwargs)
+        ogb_dataset.num_nodes = ogb_dataset[0].x.size(0)
+        return ogb_dataset
     else:
         raise ValueError("Wrong name: {}".format(name))
 
 
 if __name__ == '__main__':
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "SingletonICEWS18"
+    NAME = "ogbn-arxiv"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -124,12 +126,22 @@ if __name__ == '__main__':
 
     if NAME.startswith("JODIEDataset"):
         from collections import Counter
+
         _data = _dataset[0]
         print(torch.unique(_data.t))
         for i, (k, v) in enumerate(Counter(_data.t.tolist()).most_common()):
             print(k, v)
             if i > 20:
                 break
+
+    if NAME == "ogbn-arxiv":
+        _split_idx = _dataset.get_idx_split()
+        print(_split_idx["train"])  # tensor([     0,      1,      2,  ..., 169145, 169148, 169251])
+        print(
+            _split_idx["train"].size(),
+            _split_idx["valid"].size(),
+            _split_idx["test"].size(),
+        )  # torch.Size([90941]) torch.Size([29799]) torch.Size([48603])
 
     if NAME == "ogbl-collab":
         _split_edge = _dataset.get_edge_split()
