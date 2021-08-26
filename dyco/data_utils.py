@@ -41,18 +41,15 @@ class CoarseSnapshotData(Data):
 
     @property
     def num_nodes(self):
-        num_isolated_nodes = self.iso_x_index.size(0) if exist_attr(self, "iso_x_index") else 0
-        if self.edge_index.numel() == 0:  # no edge graphs.
-            return num_isolated_nodes
-        elif self.is_num_nodes_inferred_by_edge_index():  # remove warnings.
-            return maybe_num_nodes(self.edge_index) + num_isolated_nodes
+        if self.is_num_nodes_inferred_by_edge_index():  # remove warnings.
+            return maybe_num_nodes(self.edge_index)
         else:
             return super(CoarseSnapshotData, self).num_nodes
 
     @classmethod
     def aggregate(cls, snapshot_sublist, t_position=-1, follow_batch=None, exclude_keys=None):
         """
-        :return: e.g., SnapshotData(edge_index=[2, E], iso_x_index=[S], t=[1])
+        :return: e.g., SnapshotData(edge_index=[2, E], t=[1])
         """
         assert isinstance(snapshot_sublist[0], CoarseSnapshotData)
         # t is excluded from the batch construction, since we only add t of given t_position.
@@ -64,17 +61,6 @@ class CoarseSnapshotData(Data):
 
         data_aggr_at_t = cls(**{k: getattr(data_at_t, k) for k in data_at_t.keys
                                 if k not in ["batch", "ptr"]})
-
-        # There can be nodes that were isolated, but not any more after
-        # concatenating more than two different snapshots.
-        if len(snapshot_sublist) > 1 and snapshot_sublist[0].iso_x_index is not None:
-            edge_index_until_t = torch.cat([s.edge_index for s in snapshot_sublist], dim=-1)
-            # The last is excluded, since nodes do not travel across the time.
-            iso_x_index_until_t_minus_1 = torch.cat([s.iso_x_index for s in snapshot_sublist[:-1]])
-            # x_index_all set-minus x_index_in_edges
-            data_aggr_at_t.iso_x_index = torch_setdiff1d(iso_x_index_until_t_minus_1,
-                                                         edge_index_until_t)
-
         return data_aggr_at_t
 
     @staticmethod
@@ -83,13 +69,12 @@ class CoarseSnapshotData(Data):
                  num_nodes: int = None) -> Batch:
         """
         :param snapshot_sublist: List[SnapshotData],
-            e.g., SnapshotData(edge_index=[2, E], iso_x_index=[N], t=[1])
+            e.g., SnapshotData(edge_index=[2, E], t=[1])
         :param pernode_attrs: Dict[str, Tensor]
             e.g., {"x": tensor([[...], [...]]), "y": tensor([[...], [...]])}
         :param num_nodes: if pernode_attrs is not given, use this.
         :return: Batch,
             e.g., Batch(batch=[26709], edge_index=[2, 48866],
-                        iso_x_index=[1747], iso_x_index_batch=[1747],
                         ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
         """
         assert isinstance(snapshot_sublist[0], CoarseSnapshotData)
@@ -98,27 +83,20 @@ class CoarseSnapshotData(Data):
         if "x" in pernode_attrs:
             num_nodes = pernode_attrs["x"].size(0)
 
-        # Relabel edge_index, iso_x_index (optional) of SnapshotData in
-        # snapshot_sublist, and put pernode_attrs (e.g., x and y) to SnapshotData,
+        # Relabel edge_index of SnapshotData in snapshot_sublist,
+        # and put pernode_attrs (e.g., x and y) to SnapshotData,
         # finally construct the Batch object with them.
         mask = torch.zeros(num_nodes, dtype=torch.bool)
         assoc = torch.full((num_nodes,), -1, dtype=torch.long)
         for data in snapshot_sublist:
 
-            if exist_attr(data, "iso_x_index"):
-                existing_nodes = torch.cat([data.edge_index.view(-1), data.iso_x_index])
-            else:
-                existing_nodes = data.edge_index.view(-1)
+            existing_nodes = data.edge_index.view(-1)
 
             # Relabeling
             mask[existing_nodes] = 1
             snapshot_num_nodes = mask.sum()
             assoc[mask] = torch.arange(snapshot_num_nodes)
             data.edge_index = assoc[data.edge_index]
-
-            # Add isolated nodes as self-loops.
-            if exist_attr(data, "iso_x_index"):
-                data.edge_index = add_self_loops(data.edge_index, num_nodes=snapshot_num_nodes)[0]
 
             # Distribute pernode attributes, such as x, y, etc.
             for attr_name, pernode_tensor in pernode_attrs.items():
@@ -134,8 +112,7 @@ class CoarseSnapshotData(Data):
 
         b = Batch.from_data_list(
             snapshot_sublist,
-            exclude_keys=["increase_num_nodes_for_index", "iso_x_index"],
-        )
+            exclude_keys=["increase_num_nodes_for_index"])
         return b
 
 

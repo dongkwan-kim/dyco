@@ -161,20 +161,19 @@ class SnapshotGraphLoader(DataLoader):
                     indices_until_curr, remained_edge_index,
                     relabel_nodes=False, num_nodes=num_nodes)
                 remained_edge_index = remained_edge_index[:, ~edge_mask]  # edges not in sub_edge_index
-                # x_index_all set-minus x_index_in_edges
-                iso_x_index = torch_setdiff1d(indices, torch.unique(sub_edge_index))
+
+                if torch_setdiff1d(indices, torch.unique(sub_edge_index)).size(0) != 0:
+                    raise Exception("Use add_self_loops to edge_index to handle isolated nodes")
 
             # index chunks are edges.
             # e.g., Data(edge_index=[2, E], edge_weight=[E, 1], edge_year=[E, 1], x=[E, F])
             elif "edge" in time_name:
                 sub_edge_index = remained_edge_index[:, indices]
-                iso_x_index = None
 
             # index chunks are relations or events.
             # e.g., Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
             elif time_name == "t":
                 sub_edge_index = remained_edge_index[:, indices]
-                iso_x_index = None
                 for attr_name in ["rel", "edge_attr", "edge_y"]:
                     if exist_attr(data, attr_name):
                         o = getattr(data, attr_name)
@@ -183,9 +182,7 @@ class SnapshotGraphLoader(DataLoader):
                 raise ValueError(f"Wrong time_name: {time_name}")
 
             t = torch.Tensor([curr_time])
-            data_at_curr = CoarseSnapshotData(
-                t=t, edge_index=sub_edge_index, iso_x_index=iso_x_index,
-                **kwg_for_data)
+            data_at_curr = CoarseSnapshotData(t=t, edge_index=sub_edge_index, **kwg_for_data)
             data_list.append(data_at_curr)
 
         if save_cache:
@@ -210,7 +207,7 @@ if __name__ == "__main__":
     seed_everything(43)
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "ogbn-arxiv"
+    NAME = "JODIEDataset/lastfm"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -220,16 +217,18 @@ if __name__ == "__main__":
     if isinstance(_dataset, tuple):
         _dataset = _dataset[0]
 
+    _data = _dataset[0]
+    if NAME == "ogbn-arxiv":
+        _data.edge_index = add_self_loops(_data.edge_index, num_nodes=_data.x.size(0))[0]
+
     _loader = SnapshotGraphLoader(
-        _dataset[0],
+        _data,
         loading_type=SnapshotGraphLoader.get_loading_type(NAME),
         batch_size=3, step_size=4,
         **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
     )
     for i, _batch in enumerate(tqdm(_loader)):
-        # e.g.,
-        # Batch(batch=[26709], edge_index=[2, 48866], iso_x_index=[1747], iso_x_index_batch=[1747],
-        #       ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
+        # e.g., Batch(batch=[26709], edge_index=[2, 48866], ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
         if i < 2:
             print("\n t =", _batch.t, end=" / ")
             cprint(_batch, "yellow")
