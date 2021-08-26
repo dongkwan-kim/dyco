@@ -11,7 +11,7 @@ from torch_geometric.nn.glob import global_mean_pool, global_max_pool, global_ad
 from torch_geometric.nn import GlobalAttention, GCNConv, SAGEConv, GATConv
 from torch_scatter import scatter_add
 
-from utils import softmax_half, act
+from utils import softmax_half, act, merge_dict_by_keys
 
 
 class MyLinear(nn.Linear):
@@ -161,14 +161,16 @@ class Activation(nn.Module):
         return self.a.__repr__()
 
 
-def get_gnn_conv_and_kwargs(gnn_name, args):
+def get_gnn_conv_and_kwargs(gnn_name, **kwargs):
     gkw = {}
     if gnn_name == "GCNConv":
         gnn_cls = GCNConv
+        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops"])
     elif gnn_name == "SAGEConv":
         gnn_cls = SAGEConv
     elif gnn_name == "GATConv":
         gnn_cls = GATConv
+        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops"])
     elif gnn_name == "Linear":
         gnn_cls = MyLinear
     else:
@@ -180,7 +182,7 @@ class GraphEncoder(nn.Module):
 
     def __init__(self, layer_name, num_layers, in_channels, hidden_channels, out_channels,
                  activation="relu", use_bn=False, use_skip=False, dropout_channels=0.0,
-                 activate_last=True):
+                 activate_last=True, **kwargs):
         super().__init__()
 
         self.layer_name, self.num_layers = layer_name, num_layers
@@ -193,16 +195,17 @@ class GraphEncoder(nn.Module):
         if use_skip:
             assert hidden_channels == out_channels
 
+        self._gnn_kwargs = {}
         self.convs = torch.nn.ModuleList()
         self.bns = torch.nn.ModuleList() if self.use_bn else []
-        self.build()
+        self.build(**kwargs)
 
-    def build(self):
-        gnn, gkw = get_gnn_conv_and_kwargs(self.layer_name, None)
+    def build(self, **kwargs):
+        gnn, self._gnn_kwargs = get_gnn_conv_and_kwargs(self.layer_name, **kwargs)
         for conv_id in range(self.num_layers):
             _in_channels = self.in_channels if conv_id == 0 else self.hidden_channels
             _out_channels = self.hidden_channels if (conv_id != self.num_layers - 1) else self.out_channels
-            self.convs.append(gnn(_in_channels, _out_channels, **gkw))
+            self.convs.append(gnn(_in_channels, _out_channels, **self._gnn_kwargs))
             if self.use_bn and (conv_id != self.num_layers - 1 or self.activate_last):
                 self.bns.append(nn.BatchNorm1d(self.hidden_channels))
 
@@ -226,11 +229,18 @@ class GraphEncoder(nn.Module):
                 prev_x = x
         return x
 
+    def __gnn_kwargs_repr__(self):
+        if len(self._gnn_kwargs) == 0:
+            return ""
+        else:
+            return ", " + ", ".join([f"{k}={v}" for k, v in self._gnn_kwargs.items()])
+
     def __repr__(self):
-        return "{}(conv={}, L={}, I={}, H={}, O={}, act={}, act_last={}, skip={}, bn={})".format(
+        return "{}(conv={}, L={}, I={}, H={}, O={}, act={}, act_last={}, skip={}, bn={}{})".format(
             self.__class__.__name__, self.layer_name, self.num_layers,
             self.in_channels, self.hidden_channels, self.out_channels,
             self.activation, self.activate_last, self.use_skip, self.use_bn,
+            self.__gnn_kwargs_repr__(),
         )
 
 
@@ -447,7 +457,7 @@ if __name__ == '__main__':
         enc = GraphEncoder(
             layer_name="GATConv", num_layers=3, in_channels=32, hidden_channels=64, out_channels=64,
             activation="elu", use_bn=True, use_skip=True, dropout_channels=0.0,
-            activate_last=True,
+            activate_last=True, add_self_loops=False,
         )
         cprint(enc, "red")
         print(enc(_x, _ei).size())

@@ -16,6 +16,13 @@ import numpy as np
 from tqdm import tqdm
 
 
+def merge_dict_by_keys(first_dict: dict, second_dict: dict, keys: list):
+    for k in keys:
+        if k in second_dict:
+            first_dict[k] = second_dict[k]
+    return first_dict
+
+
 def startswith_any(string: str, prefix_list, *args, **kwargs) -> bool:
     for prefix in prefix_list:
         if string.startswith(prefix, *args, **kwargs):
