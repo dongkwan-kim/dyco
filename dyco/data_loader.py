@@ -24,6 +24,7 @@ class SnapshotGraphLoader(DataLoader):
                  batch_size=1, step_size=1,
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
+                 transform=None,
                  snapshot_dir="./", num_nodes=None,
                  **kwargs):
 
@@ -36,6 +37,7 @@ class SnapshotGraphLoader(DataLoader):
         self.collater = Collater(follow_batch, exclude_keys)
 
         self.snapshot_dir = snapshot_dir
+        self.transform = transform
 
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
@@ -113,9 +115,10 @@ class SnapshotGraphLoader(DataLoader):
                 data_at_t_within_steps = CoarseSnapshotData.aggregate(snapshot_sublist)
                 data_at_t_list.append(data_at_t_within_steps)
             b = CoarseSnapshotData.to_batch(data_at_t_list, self.attr_requirements)
-            return b
         else:
             raise ValueError
+        b = self.transform(b) if self.transform is not None else b
+        return b
 
     def disassemble_to_multi_snapshots(self, data: Data, time_name: str,
                                        save_cache: bool = True) -> List[CoarseSnapshotData]:
