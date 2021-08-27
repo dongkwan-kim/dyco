@@ -196,8 +196,11 @@ class SnapshotGraphLoader(DataLoader):
 
 class EdgeLoader:
 
-    def __init__(self, batch_size, pos_edge_index, neg_edge_index=None, num_nodes=None, shuffle=False, **kwargs):
+    def __init__(self, batch_size, pos_edge_index, neg_edge_index=None,
+                 num_nodes=None, kwargs_at_first_batch: Dict = None,
+                 shuffle=False, **kwargs):
         self.num_nodes = num_nodes
+        self.kwargs_at_first_batch = kwargs_at_first_batch or {}
         self.pos_loader = DataLoader(pos_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
 
         self.neg_loader, self.use_neg_transform = None, False
@@ -215,15 +218,25 @@ class EdgeLoader:
         neg_edge_index = torch.randint(0, self.num_nodes, pos_edge_index.size(), dtype=torch.long)
         return pos_edge_index, neg_edge_index
 
+    def format_batch(self, enumerated_edge_pair):
+        idx, (pos_edge, neg_edge) = enumerated_edge_pair
+        batch_dict = dict(pos_edge=pos_edge, neg_edge=neg_edge)
+        if idx == 0:
+            batch_dict.update(**self.kwargs_at_first_batch)
+        return batch_dict
+
     def __iter__(self):
+
         if self.neg_loader is None and not self.use_neg_transform:
             return iter(self.pos_loader)
-        elif self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
-            return zip_longest(self.pos_loader, self.neg_loader, fillvalue=None)
+
+        if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
+            it = zip_longest(self.pos_loader, self.neg_loader, fillvalue=None)
         elif self.use_neg_transform:
-            return iter_transform(self.pos_loader, transform=self.add_trivial_negatives)
+            it = iter_transform(self.pos_loader, transform=self.add_trivial_negatives)
         else:
             raise AttributeError(f"neg_loader={self.neg_loader}, use_neg_transform={self.use_neg_transform}")
+        return iter_transform(enumerate(it), transform=self.format_batch)
 
     def __len__(self):
         if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
@@ -274,19 +287,29 @@ if __name__ == "__main__":
         _pos_valid_edge = _split_edge['valid']['edge']
         _neg_valid_edge = _split_edge['valid']['edge_neg']
 
-        cprint("-- w/ trivial_random_samples", "green")
+        cprint("-- w/ trivial_random_samples and kwargs_at_first_batch", "green")
         _loader = EdgeLoader(
             batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index="trivial_random_samples",
+            kwargs_at_first_batch={"wow": 123},
             num_nodes=_data.num_nodes)
         for i, _batch in enumerate(tqdm(_loader)):
-            print("\n", _batch)
-            break
+            pprint((i, _batch))
+            if i == 1:
+                break
 
         cprint("-- w/ neg_edge_index", "green")
         _loader = EdgeLoader(
             batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index=_neg_valid_edge,
             num_nodes=_data.num_nodes)
         for i, _batch in enumerate(tqdm(_loader)):
-            print("\n", _batch)
+            pprint(_batch)
+            break
+
+        cprint("-- wo/ neg_edge_index", "green")
+        _loader = EdgeLoader(
+            batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index=None,
+            num_nodes=_data.num_nodes)
+        for i, _batch in enumerate(tqdm(_loader)):
+            pprint(_batch)
             break
 
