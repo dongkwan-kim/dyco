@@ -90,7 +90,7 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
         cls = PygNodePropPredDataset if name.startswith("ogbn") else PygLinkPropPredDataset
         ogb_dataset = _get_dataset_at_cls_dir(cls, path, transform=transform, pre_transform=pre_transform,
                                               name=name, *args, **kwargs)
-        ogb_dataset.num_nodes = ogb_dataset[0].x.size(0)
+        ogb_dataset.num_nodes = ogb_dataset.data.x.size(0)
         return ogb_dataset
     else:
         raise ValueError("Wrong name: {}".format(name))
