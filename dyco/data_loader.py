@@ -1,10 +1,12 @@
 import os
+from itertools import zip_longest
 from pprint import pprint
 from typing import List, Dict, Union
 
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
+from torch.utils.data.dataloader import default_collate
 from torch_geometric.data import Data, Batch, TemporalData
 
 from termcolor import cprint
@@ -15,7 +17,7 @@ from tqdm import tqdm
 from dataset import get_dynamic_graph_dataset
 from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data
 from utils import (torch_setdiff1d, to_index_chunks_by_values,
-                   subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask)
+                   subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask, iter_transform)
 
 
 class SnapshotGraphLoader(DataLoader):
@@ -192,13 +194,42 @@ class SnapshotGraphLoader(DataLoader):
         return data_list
 
 
-def get_snapshot_graph_loader(dataset, name: str, stage: str, *args, **kwargs):
-    assert stage in ["train", "valid", "test", "evaluation"]
-    loader = SnapshotGraphLoader(
-        dataset, loading_type=SnapshotGraphLoader.get_loading_type(name),
-        *args, **kwargs,
-    )
-    return loader
+class EdgeLoader:
+
+    def __init__(self, batch_size, pos_edge_index, neg_edge_index=None, num_nodes=None, shuffle=False, **kwargs):
+        self.num_nodes = num_nodes
+        self.pos_loader = DataLoader(pos_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
+
+        self.neg_loader, self.use_neg_transform = None, False
+        if neg_edge_index is not None and isinstance(neg_edge_index, torch.Tensor):
+            self.neg_loader = DataLoader(neg_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
+        elif neg_edge_index == "trivial_random_samples":
+            self.use_neg_transform = True
+
+    @staticmethod
+    def __collate__(index_list):
+        return default_collate(index_list).t()  # transpose to make [2, E]
+
+    def add_trivial_negatives(self, pos_edge_index):
+        # Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L114
+        neg_edge_index = torch.randint(0, self.num_nodes, pos_edge_index.size(), dtype=torch.long)
+        return pos_edge_index, neg_edge_index
+
+    def __iter__(self):
+        if self.neg_loader is None and not self.use_neg_transform:
+            return iter(self.pos_loader)
+        elif self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
+            return zip_longest(self.pos_loader, self.neg_loader, fillvalue=None)
+        elif self.use_neg_transform:
+            return iter_transform(self.pos_loader, transform=self.add_trivial_negatives)
+        else:
+            raise AttributeError(f"neg_loader={self.neg_loader}, use_neg_transform={self.use_neg_transform}")
+
+    def __len__(self):
+        if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
+            return max(len(self.pos_loader), len(self.neg_loader))
+        else:
+            return len(self.pos_loader)
 
 
 if __name__ == "__main__":
@@ -207,7 +238,8 @@ if __name__ == "__main__":
     seed_everything(43)
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "JODIEDataset/lastfm"
+    NAME = "ogbl-collab"
+    LOADER = "EdgeLoader"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -221,16 +253,40 @@ if __name__ == "__main__":
     if NAME == "ogbn-arxiv":
         _data.edge_index = add_self_loops(_data.edge_index, num_nodes=_data.x.size(0))[0]
 
-    _loader = SnapshotGraphLoader(
-        _data,
-        loading_type=SnapshotGraphLoader.get_loading_type(NAME),
-        batch_size=3, step_size=4,
-        **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
-    )
-    for i, _batch in enumerate(tqdm(_loader)):
-        # e.g., Batch(batch=[26709], edge_index=[2, 48866], ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
-        if i < 2:
-            print("\n t =", _batch.t, end=" / ")
-            cprint(_batch, "yellow")
-        else:
-            exit()
+    if LOADER == "SnapshotGraphLoader":
+        _loader = SnapshotGraphLoader(
+            _data,
+            loading_type=SnapshotGraphLoader.get_loading_type(NAME),
+            batch_size=3, step_size=4,
+            **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
+        )
+        for i, _batch in enumerate(tqdm(_loader)):
+            # e.g., Batch(batch=[26709], edge_index=[2, 48866], ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
+            if i < 2:
+                print("\n t =", _batch.t, end=" / ")
+                cprint(_batch, "yellow")
+            else:
+                exit()
+
+    elif LOADER == "EdgeLoader":
+        assert NAME == "ogbl-collab"
+        _split_edge = _dataset.get_edge_split()
+        _pos_valid_edge = _split_edge['valid']['edge']
+        _neg_valid_edge = _split_edge['valid']['edge_neg']
+
+        cprint("-- w/ trivial_random_samples", "green")
+        _loader = EdgeLoader(
+            batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index="trivial_random_samples",
+            num_nodes=_data.num_nodes)
+        for i, _batch in enumerate(tqdm(_loader)):
+            print("\n", _batch)
+            break
+
+        cprint("-- w/ neg_edge_index", "green")
+        _loader = EdgeLoader(
+            batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index=_neg_valid_edge,
+            num_nodes=_data.num_nodes)
+        for i, _batch in enumerate(tqdm(_loader)):
+            print("\n", _batch)
+            break
+

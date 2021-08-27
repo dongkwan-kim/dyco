@@ -1,6 +1,6 @@
 import time
 from pprint import pprint
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Callable
 
 import torch
 from termcolor import cprint
@@ -14,6 +14,11 @@ from torch_geometric.utils import to_dense_batch, softmax
 
 import numpy as np
 from tqdm import tqdm
+
+
+def iter_transform(iterator, transform: Callable = None):
+    for it in iterator:
+        yield it if transform is None else transform(it)
 
 
 def merge_dict_by_keys(first_dict: dict, second_dict: dict, keys: list):
