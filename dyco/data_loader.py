@@ -203,6 +203,9 @@ class EdgeLoader:
         self.kwargs_at_first_batch = kwargs_at_first_batch or {}
         self.pos_loader = DataLoader(pos_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
 
+        assert (neg_edge_index is None) or \
+               (neg_edge_index == "trivial_random_samples") or \
+               (isinstance(neg_edge_index, torch.Tensor))
         self.neg_loader, self.use_neg_transform = None, False
         if neg_edge_index is not None and isinstance(neg_edge_index, torch.Tensor):
             self.neg_loader = DataLoader(neg_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
@@ -312,4 +315,3 @@ if __name__ == "__main__":
         for i, _batch in enumerate(tqdm(_loader)):
             pprint(_batch)
             break
-
