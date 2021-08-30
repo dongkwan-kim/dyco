@@ -16,6 +16,18 @@ import numpy as np
 from tqdm import tqdm
 
 
+def try_getattr_dict(o, name_list: List[str], default=None) -> Dict[str, Any]:
+    for name in name_list:
+        try:
+            return {name: getattr(o, name)}
+        except AttributeError:
+            pass
+    if default is not None:
+        return {"default": default}
+    else:
+        raise AttributeError
+
+
 def iter_transform(iterator, transform: Callable = None):
     for it in iterator:
         yield it if transform is None else transform(it)
