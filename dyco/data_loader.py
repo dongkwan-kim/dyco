@@ -144,6 +144,9 @@ class SnapshotGraphLoader(DataLoader):
             except Exception as e:
                 cprint(f"Load snapshots failed from {self.snapshot_path}, the error is {e}", "red")
 
+        if not exist_attr(data, "edge_index"):
+            raise Exception("Please check that whether the data has edge_index attribute.")
+
         time_step = getattr(data, time_name)  # e.g., node_year, edge_year, t
 
         index_chunks_dict = to_index_chunks_by_values(time_step)  # Dict[Any, LongTensor]:
