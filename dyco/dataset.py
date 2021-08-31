@@ -72,7 +72,7 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
         _, sub_name = name.split("/")
         jodie_dataset = _get_dataset_at_cls_dir(JODIEDataset, path, transform=transform, pre_transform=pre_transform,
                                                 name=sub_name, *args, **kwargs)
-        jodie_dataset.num_nodes = jodie_dataset[0].dst.max().item() + 1
+        jodie_dataset.num_nodes = jodie_dataset.data.dst.max().item() + 1
         return jodie_dataset
     elif name in ["SingletonICEWS18", "SingletonGDELT"]:
         args_wo_split = (eval(name), path, *args)
