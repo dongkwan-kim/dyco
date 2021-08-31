@@ -185,10 +185,20 @@ def from_ogb_data_to_temporal_data(data_or_data_list: Union[Data, List[Data]]) -
         e.g., TemporalData(dst=[E], src=[E], t=[E], x=[N, F])
     """
     data = data_or_data_list if isinstance(data_or_data_list, Data) else data_or_data_list[0]
-    src, dst = data.edge_index
-    t = (data.node_year if hasattr(data, "node_year") else data.edge_year).squeeze()
-    kwargs = {k: getattr(data, k).squeeze() for k in data.keys
-              if k not in ["edge_index", "node_year", "edge_year"]}
+    if hasattr(data, "node_year"):
+        # Construct event per edge using node_year
+        #  e.g., edge of (2015, 2017) --> event at 2017.
+        node_year = data.node_year.squeeze()
+        node_pair_year = node_year[data.edge_index]  # [2, E]
+        t, perm = torch.sort(torch.max(node_pair_year, dim=0).values)  # [E]
+        src, dst = data.edge_index[:, perm]
+        kwargs = {"x": data.x, "y": data.y.squeeze()}
+    elif hasattr(data, "edge_year"):
+        t, perm = torch.sort(data.edge_year.squeeze())
+        src, dst = data.edge_index[:, perm]
+        kwargs = {"x": data.x, "edge_weight": data.edge_weight[perm].squeeze()}
+    else:
+        raise AttributeError
     return TemporalData(src=src, dst=dst, t=t, **kwargs)
 
 

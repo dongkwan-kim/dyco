@@ -7,7 +7,7 @@ import torch
 from torch_geometric.datasets import JODIEDataset
 from torch_geometric.datasets import BitcoinOTC
 from torch_geometric.datasets import ICEWS18, GDELT
-from torch_geometric.data import TemporalData
+from torch_geometric.data import TemporalData, Data
 from torch_geometric.datasets.icews import EventDataset
 
 from ogb.nodeproppred import PygNodePropPredDataset
@@ -120,14 +120,14 @@ if __name__ == '__main__':
     for d in _dataset:
         print(d)
 
+    _data = _dataset[0]
+
     if NAME.startswith("Singleton"):
-        _data = _dataset[0]
         print(torch.unique(_data.t))
 
     if NAME.startswith("JODIEDataset"):
         from collections import Counter
 
-        _data = _dataset[0]
         print(torch.unique(_data.t))
         for i, (k, v) in enumerate(Counter(_data.t.tolist()).most_common()):
             print(k, v)
@@ -143,7 +143,7 @@ if __name__ == '__main__':
             _split_idx["test"].size(),
         )  # torch.Size([90941]) torch.Size([29799]) torch.Size([48603])
 
-    if NAME == "ogbl-collab":
+    if NAME == "ogbl-collab" and isinstance(_data, Data):
         _split_edge = _dataset.get_edge_split()
         _pos_train_edge = _split_edge['train']['edge']
         _pos_valid_edge = _split_edge['valid']['edge']
