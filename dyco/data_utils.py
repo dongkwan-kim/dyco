@@ -4,7 +4,7 @@ from typing import List, Dict, Union
 import torch
 from torch import Tensor
 from torch_geometric.data import Batch, Data, TemporalData
-from torch_geometric.transforms import ToSparseTensor, ToUndirected
+from torch_geometric.transforms import ToSparseTensor, ToUndirected, Compose
 from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_sparse import SparseTensor
@@ -249,6 +249,13 @@ class UseValEdgesAsInput(object):
 
     def set_val_edge_index(self, split_idx):
         self._val_edge_index = split_idx['valid']['edge'].t()
+
+    @classmethod
+    def set_val_edge_index_for_compose(cls, compose_transform: Compose, split_idx):
+        for t in compose_transform.transforms:
+            if isinstance(t, cls):
+                t.set_val_edge_index(split_idx)
+                break
 
     def __call__(self, data):
         assert self._val_edge_index is not None

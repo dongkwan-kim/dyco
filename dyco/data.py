@@ -7,14 +7,14 @@ from termcolor import cprint
 
 import torch_geometric.transforms as T
 from torch.utils.data import DataLoader
-from torch_geometric.data import InMemoryDataset, Data
+from torch_geometric.data import InMemoryDataset, Data, TemporalData
 from torch_geometric.datasets import JODIEDataset
 from pytorch_lightning import LightningDataModule
 from torch_geometric.transforms import ToUndirected, Compose, AddSelfLoops
 from torch_geometric.utils import add_self_loops
 
 from data_loader import SnapshotGraphLoader, EdgeLoader
-from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric
+from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
 from dataset import get_dynamic_graph_dataset
 from utils import try_getattr_dict
 
@@ -55,23 +55,34 @@ class DyGraphDataModule(LightningDataModule):
         get_dynamic_graph_dataset(path=self.h.dataset_path, name=self.h.dataset_name)
 
     def setup(self, stage: Optional[str] = None) -> None:
-        transform = None
-        if self.h.transform_to_temporal_data:
-            transform = ToTemporalData()
-        elif self.h.dataset_name == "ogbl-collab":
-            transform = UseValEdgesAsInput(to_sparse_tensor=self.h.use_sparse_tensor, to_symmetric=True)
-        elif self.h.dataset_name == "ogbn-arxiv":
-            transform = Compose([
-                AddSelfLoops(),  # important.
-                ToSymmetric(to_sparse_tensor=self.h.use_sparse_tensor)
-            ])
 
+        tfs = []
+        if self.h.dataset_name == "ogbn-arxiv":
+            tfs.append(AddSelfLoops())  # important.
+            if not self.h.use_temporal_data:
+                tfs.append(ToSymmetric(to_sparse_tensor=self.h.use_sparse_tensor))
+            else:
+                tfs.append(ToTemporalData())
+        elif self.h.dataset_name.startswith("JODIEDataset"):
+            if not self.h.use_temporal_data:
+                tfs.append(FromTemporalData())
+        elif self.h.use_temporal_data:
+            tfs.append(ToTemporalData())
+        elif self.h.dataset_name == "ogbl-collab":
+            if not self.h.use_temporal_data:
+                tfs.append(UseValEdgesAsInput(to_sparse_tensor=self.h.use_sparse_tensor, to_symmetric=True))
+
+        transform = None if len(tfs) == 0 else Compose(tfs)
         self.dataset = get_dynamic_graph_dataset(
             path=self.h.dataset_path, name=self.h.dataset_name, transform=transform,
         )
         if self.h.dataset_name.startswith("JODIEDataset"):
-            self.train_data, self.val_data, self.test_data = self.dataset[0].train_val_test_split(
-                val_ratio=0.15, test_ratio=0.15)
+            try:  # TemporalData
+                self.train_data, self.val_data, self.test_data = self.dataset[0].train_val_test_split(
+                    val_ratio=0.15, test_ratio=0.15)
+            except AttributeError:  # Data
+                # todo: support split for Data
+                raise NotImplementedError
         elif self.h.dataset_name in ["SingletonICEWS18", "SingletonGDELT"]:
             self.train_data, self.val_data, self.test_data = (d[0] for d in self.dataset)
         elif self.h.dataset_name == "ogbn-arxiv":
@@ -80,7 +91,7 @@ class DyGraphDataModule(LightningDataModule):
             self.model_kwargs["add_self_loops"] = False  # important.
         elif self.h.dataset_name == "ogbl-collab":
             self.split_idx = self.dataset.get_edge_split()
-            transform.set_val_edge_index(self.split_idx)
+            UseValEdgesAsInput.set_val_edge_index_for_compose(transform, self.split_idx)
             self.train_data, self.val_data, self.test_data = self.dataset[0], self.dataset[0], self.dataset[0]
         elif self.h.dataset_name == "BitcoinOTC":
             raise NotImplementedError
@@ -88,7 +99,7 @@ class DyGraphDataModule(LightningDataModule):
             raise ValueError
 
     def train_dataloader(self):
-        if self.h.transform_to_temporal_data and self.h.dataloader_type == "TemporalDataLoader":
+        if self.h.use_temporal_data and self.h.dataloader_type == "TemporalDataLoader":
             # Implement https://github.com/rusty1s/pytorch_geometric/blob/master/examples/tgn.py
             raise NotImplementedError
         elif self.h.dataloader_type == "SnapshotGraphLoader":
@@ -109,12 +120,13 @@ class DyGraphDataModule(LightningDataModule):
         elif self.h.dataloader_type == "NoLoader":
             loader = [self.train_data]
         else:
-            raise ValueError("Wrong dataloader_type: {}".format(self.h.dataloader_type))
+            raise ValueError("Wrong options: ({}, use_temporal_data={})".format(
+                self.h.dataloader_type, self.h.use_temporal_data))
         return loader
 
-    def _eval_loader(self, eval_data: Data, stage=None):
+    def _eval_loader(self, eval_data: Union[Data, TemporalData], stage=None):
         dataloader_type = (self.h.eval_dataloader_type or self.h.dataloader_type)
-        if self.h.transform_to_temporal_data and dataloader_type == "TemporalDataLoader":
+        if self.h.use_temporal_data and dataloader_type == "TemporalDataLoader":
             # Implement https://github.com/rusty1s/pytorch_geometric/blob/master/examples/tgn.py
             raise NotImplementedError
         elif dataloader_type == "SnapshotGraphLoader":
@@ -130,6 +142,7 @@ class DyGraphDataModule(LightningDataModule):
         elif dataloader_type == "NoLoader":
             loader = [eval_data]
         elif dataloader_type == "EdgeLoader":
+            assert isinstance(eval_data, Data)  # todo: support TemporalData
             # Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L140-L178
             pos_valid_edge = self.split_edge[stage]['edge']
             neg_valid_edge = self.split_edge[stage]['edge_neg']
@@ -144,7 +157,8 @@ class DyGraphDataModule(LightningDataModule):
                                 num_nodes=self.num_nodes, kwargs_at_first_batch=kwargs_at_first_batch,
                                 shuffle=False)
         else:
-            raise ValueError("Wrong dataloader_type: {}".format(dataloader_type))
+            raise ValueError("Wrong options: ({}, use_temporal_data={})".format(
+                dataloader_type, self.h.use_temporal_data))
         return loader
 
     def val_dataloader(self):
@@ -159,8 +173,8 @@ class DyGraphDataModule(LightningDataModule):
 
 if __name__ == '__main__':
 
-    PATH = "/mnt/nas2/GNN-DATA/PYG/"
     NAME = "ogbl-collab"
+    USE_TEMPORAL_DATA = False
     LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
     EVAL_LOADER = "EdgeLoader"  # + None
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
@@ -173,10 +187,10 @@ if __name__ == '__main__':
     _dgdm = DyGraphDataModule(Namespace(
         verbose=2,
         dataset_name=NAME,
-        dataset_path=PATH,
+        dataset_path="/mnt/nas2/GNN-DATA/PYG/",
         dataloader_type=LOADER,
         eval_dataloader_type=EVAL_LOADER,
-        transform_to_temporal_data=False,
+        use_temporal_data=USE_TEMPORAL_DATA,
         use_sparse_tensor=True,
         batch_size=8,
         eval_batch_size=None,
