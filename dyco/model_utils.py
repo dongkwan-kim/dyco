@@ -155,7 +155,9 @@ class Activation(nn.Module):
 
     def __init__(self, activation_name):
         super().__init__()
-        if activation_name == "relu":
+        if activation_name is None:
+            self.a = nn.Identity()
+        elif activation_name == "relu":
             self.a = nn.ReLU()
         elif activation_name == "elu":
             self.a = nn.ELU()
@@ -262,36 +264,78 @@ class GraphEncoder(nn.Module):
         )
 
 
+class EdgePredictor(nn.Module):
+
+    def __init__(self, predictor_type, num_layers, hidden_channels, out_channels,
+                 activation="relu", out_activation=None, use_bn=False, dropout_channels=0.0):
+        super().__init__()
+        assert predictor_type in ["DotProduct", "Concat", "HadamardProduct"]
+        self.predictor_type = predictor_type
+        in_channels = 2 * hidden_channels if predictor_type == "Concat" else hidden_channels
+        self.mlp = MLP(
+            num_layers=num_layers,
+            in_channels=in_channels,
+            hidden_channels=hidden_channels,
+            out_channels=out_channels,
+            activation=activation,
+            use_bn=use_bn,
+            dropout=dropout_channels,
+            activate_last=False,
+        )
+        self.out_activation = Activation(out_activation)
+
+    def forward(self, x, edge_index):
+        x_i, x_j = x[edge_index[0]], x[edge_index[1]]  # [E, F]
+        if self.predictor_type == "Dot-product":
+            x_i, x_j = self.mlp(x_i), self.mlp(x_j)
+            logits = torch.einsum("ef,ef->e", x_i, x_j)
+        elif self.predictor_type == "Concat":
+            e = torch.cat([x_i, x_j], dim=-1)  # [E, 2F]
+            logits = self.mlp(e)
+        elif self.predictor_type == "Hadamard-product":
+            e = x_i * x_j  # [E, F]
+            logits = self.mlp(e)
+        else:
+            raise ValueError
+        return self.out_activation(logits)
+
+    def __repr__(self):
+        return "{}({}, mlp={}, out={})".format(
+            self.__class__.__name__, self.predictor_type,
+            self.mlp.layer_repr(), self.out_activation,
+        )
+
+
 class Readout(nn.Module):
 
-    def __init__(self, readout_types, hidden_channels, num_body_layers,
-                 activation="relu", use_bn=False, dropout_channels=0.0,
-                 out_channels=None, use_out_linear=False):
+    def __init__(self, readout_types, num_in_layers, hidden_channels,
+                 out_channels=None, use_out_mlp=False,
+                 activation="relu", use_bn=False, dropout_channels=0.0, **kwargs):
         super().__init__()
 
         self.readout_types = readout_types  # e.g., mean, max, sum, mean-max, ...,
         self.hidden_channels = hidden_channels
-        self.num_body_layers = num_body_layers
+        self.num_in_layers = num_in_layers
         self.activation = activation
         self.use_bn = use_bn
         self.dropout_channels = dropout_channels
 
         self.out_channels = out_channels
-        self.use_out_linear = use_out_linear
+        self.use_out_mlp = use_out_mlp
 
-        self.fc_in = self.build_body_fc()  # [N, F] -> [N, F]
-        if self.use_out_linear:
+        self.in_mlp = self.build_in_mlp(**kwargs)  # [N, F] -> [N, F]
+        if self.use_out_mlp:
             num_readout_types = len(self.readout_types.split("-"))
-            self.fc_out = nn.Linear(
+            self.out_mlp = nn.Linear(
                 num_readout_types * hidden_channels,
                 out_channels,
             )
         else:
-            self.fc_out = None
+            self.out_mlp = None
 
-    def build_body_fc(self, **kwargs):
+    def build_in_mlp(self, **kwargs):
         kw = dict(
-            num_layers=self.num_body_layers,
+            num_layers=self.num_in_layers,
             in_channels=self.hidden_channels,
             hidden_channels=self.hidden_channels,
             out_channels=self.hidden_channels,
@@ -306,7 +350,7 @@ class Readout(nn.Module):
     def forward(self, x, batch=None, *args, **kwargs):
 
         B = int(batch.max().item() + 1) if batch is not None else 1
-        x = self.fc_in(x)
+        x = self.in_mlp(x)
 
         o_list = []
         if "mean" in self.readout_types:
@@ -323,14 +367,15 @@ class Readout(nn.Module):
                           global_add_pool(x, batch, B))
 
         z = torch.cat(o_list, dim=-1)  # [F * #type] or  [B, F * #type]
-        out_logits = self.fc_out(z).view(B, -1) if self.use_out_linear else None
+        out_logits = self.out_mlp(z).view(B, -1) if self.use_out_mlp else None
         return z.view(B, -1), out_logits
 
     def __repr__(self):
-        return "{}(types={}, in_linear={}, out_linear={})".format(
+        return "{}({}, in_mlp={}, out_mlp={})".format(
             self.__class__.__name__, self.readout_types,
-            self.fc_in.layer_repr(),
-            None if not self.use_out_linear else "{}->{}".format(self.fc_out.in_features, self.fc_out.out_features),
+            self.in_mlp.layer_repr(),
+            None if not self.use_out_mlp else "{}->{}".format(
+                self.out_mlp.in_features, self.out_mlp.out_features),
         )
 
 
@@ -438,7 +483,7 @@ if __name__ == '__main__':
         print(_bilinear(_x1, _x2).size())  # [5, 23, 7]
 
     elif MODE == "Readout":
-        _ro = Readout(readout_types="sum", hidden_channels=64, num_body_layers=2)
+        _ro = Readout(readout_types="sum", hidden_channels=64, num_in_layers=2)
         _x = torch.ones(10 * 64).view(10, 64)
         _batch = torch.zeros(10).long()
         _batch[:4] = 1
@@ -447,16 +492,16 @@ if __name__ == '__main__':
         print(_ro)
         print("_z", _z.size())  # [2, 64]
 
-        _ro = Readout(readout_types="sum", hidden_channels=64, num_body_layers=2,
-                      out_channels=3, use_out_linear=True)
+        _ro = Readout(readout_types="sum", hidden_channels=64, num_in_layers=2,
+                      out_channels=3, use_out_mlp=True)
         cprint("-- sum w/ batch", "red")
         _z, _logits = _ro(_x, _batch)
         print(_ro)
         print("_z", _z.size())  # [2, 64]
         print("_logits", _logits.size())  # [2, 3]
 
-        _ro = Readout(readout_types="mean-sum", hidden_channels=64, num_body_layers=2,
-                      out_channels=3, use_out_linear=True)
+        _ro = Readout(readout_types="mean-sum", hidden_channels=64, num_in_layers=2,
+                      out_channels=3, use_out_mlp=True)
         cprint("-- mean-sum w/ batch", "red")
         _z, _logits = _ro(_x, _batch)
         print(_ro)
