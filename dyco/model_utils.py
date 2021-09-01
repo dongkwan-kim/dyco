@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Union, Tuple
 
 import torch
 import torch.nn as nn
@@ -21,6 +22,19 @@ class MyLinear(nn.Linear):
 
     def forward(self, x, *args, **kwargs):
         return super(MyLinear, self).forward(x)
+
+
+class MyGATConv(GATConv):
+
+    def __init__(self, in_channels: Union[int, Tuple[int, int]],
+                 out_channels: int, heads: int = 1, concat: bool = True,
+                 negative_slope: float = 0.2, dropout: float = 0.0,
+                 add_self_loops: bool = True, bias: bool = True, **kwargs):
+        assert concat
+        assert out_channels % heads == 0
+        out_channels = out_channels // heads
+        super().__init__(in_channels, out_channels, heads, concat, negative_slope,
+                         dropout, add_self_loops, bias, **kwargs)
 
 
 class PositionalEncoding(nn.Module):
@@ -169,8 +183,8 @@ def get_gnn_conv_and_kwargs(gnn_name, **kwargs):
     elif gnn_name == "SAGEConv":
         gnn_cls = SAGEConv
     elif gnn_name == "GATConv":
-        gnn_cls = GATConv
-        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops"])
+        gnn_cls = MyGATConv
+        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops", "heads"])
     elif gnn_name == "Linear":
         gnn_cls = MyLinear
     else:
@@ -192,12 +206,10 @@ class GraphEncoder(nn.Module):
         self.dropout_channels = dropout_channels
         self.activate_last = activate_last
 
-        if use_skip:
-            assert hidden_channels == out_channels
-
         self._gnn_kwargs = {}
         self.convs = torch.nn.ModuleList()
         self.bns = torch.nn.ModuleList() if self.use_bn else []
+        self.skips = torch.nn.ModuleList() if self.use_skip else []
         self.build(**kwargs)
 
     def build(self, **kwargs):
@@ -206,8 +218,11 @@ class GraphEncoder(nn.Module):
             _in_channels = self.in_channels if conv_id == 0 else self.hidden_channels
             _out_channels = self.hidden_channels if (conv_id != self.num_layers - 1) else self.out_channels
             self.convs.append(gnn(_in_channels, _out_channels, **self._gnn_kwargs))
-            if self.use_bn and (conv_id != self.num_layers - 1 or self.activate_last):
-                self.bns.append(nn.BatchNorm1d(self.hidden_channels))
+            if conv_id != self.num_layers - 1 or self.activate_last:
+                if self.use_bn:
+                    self.bns.append(nn.BatchNorm1d(self.hidden_channels))
+                if self.use_skip:
+                    self.skips.append(nn.Linear(_in_channels, _out_channels))
 
     def reset_parameters(self):
         for conv in self.convs:
@@ -216,17 +231,20 @@ class GraphEncoder(nn.Module):
             bn.reset_parameters()
 
     def forward(self, x, edge_index, **kwargs):
-        prev_x = None
+        # Order references.
+        #  https://d2l.ai/chapter_convolutional-modern/resnet.html#residual-blocks
+        #  https://github.com/rusty1s/pytorch_geometric/blob/master/examples/ppi.py#L30-L34
+        #  https://github.com/snap-stanford/ogb/blob/master/examples/nodeproppred/arxiv/gnn.py#L69-L76
         for i, conv in enumerate(self.convs):
+            x_before_layer = x
             x = conv(x, edge_index, **kwargs)
             if i != self.num_layers - 1 or self.activate_last:
                 if self.use_bn:
                     x = self.bns[i](x)
+                if self.use_skip:
+                    x = x + self.skips[i](x_before_layer)
                 x = act(x, self.activation)
                 x = F.dropout(x, p=self.dropout_channels, training=self.training)
-                if self.use_skip and prev_x is not None:
-                    x = x + prev_x
-                prev_x = x
         return x
 
     def __gnn_kwargs_repr__(self):
@@ -457,7 +475,7 @@ if __name__ == '__main__':
         enc = GraphEncoder(
             layer_name="GATConv", num_layers=3, in_channels=32, hidden_channels=64, out_channels=64,
             activation="elu", use_bn=True, use_skip=True, dropout_channels=0.0,
-            activate_last=True, add_self_loops=False,
+            activate_last=True, add_self_loops=False, heads=8,
         )
         cprint(enc, "red")
         print(enc(_x, _ei).size())
