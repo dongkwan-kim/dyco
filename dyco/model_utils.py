@@ -270,6 +270,8 @@ class EdgePredictor(nn.Module):
                  activation="relu", out_activation=None, use_bn=False, dropout_channels=0.0):
         super().__init__()
         assert predictor_type in ["DotProduct", "Concat", "HadamardProduct"]
+        if predictor_type == "DotProduct":
+            assert out_channels == 1
         self.predictor_type = predictor_type
         in_channels = 2 * hidden_channels if predictor_type == "Concat" else hidden_channels
         self.mlp = MLP(
