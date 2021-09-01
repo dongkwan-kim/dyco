@@ -344,14 +344,14 @@ class VersatileEmbedding(nn.Module):
         self.num_nodes = num_nodes
         self.num_channels = num_channels
         if not isinstance(num_channels, int) or num_channels <= 0:
-            assert embedding_type == "Feature"
+            assert embedding_type == "UseRawFeature"
 
         if self.embedding_type == "Embedding":
             self.embedding = nn.Embedding(self.num_nodes, self.num_channels)
         elif self.embedding_type == "Random":
             self.embedding = nn.Embedding(self.num_nodes, self.num_channels)
             self.embedding.weight.requires_grad = False
-        elif self.embedding_type == "Feature":
+        elif self.embedding_type == "UseRawFeature":
             self.embedding = None
         elif self.embedding_type == "Pretrained":
             assert pretrained_embedding is not None
