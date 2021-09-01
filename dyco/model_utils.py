@@ -343,6 +343,8 @@ class VersatileEmbedding(nn.Module):
         self.embedding_type = embedding_type
         self.num_nodes = num_nodes
         self.num_channels = num_channels
+        if not isinstance(num_channels, int) or num_channels <= 0:
+            assert embedding_type == "Feature"
 
         if self.embedding_type == "Embedding":
             self.embedding = nn.Embedding(self.num_nodes, self.num_channels)
