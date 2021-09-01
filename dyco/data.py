@@ -45,11 +45,20 @@ class DyGraphDataModule(LightningDataModule):
 
     @property
     def num_classes(self):
+        if hasattr(self.dataset, "num_rels"):
+            return self.dataset.num_rels
         return self.dataset.num_classes
 
     @property
     def num_nodes(self):
         return self.dataset.num_nodes
+
+    @property
+    def num_node_features(self):
+        try:
+            return self.dataset.num_node_features
+        except AttributeError:
+            return 0
 
     def prepare_data(self) -> None:
         get_dynamic_graph_dataset(path=self.h.dataset_path, name=self.h.dataset_name)
