@@ -45,9 +45,12 @@ class DyGraphDataModule(LightningDataModule):
 
     @property
     def num_classes(self):
-        if hasattr(self.dataset, "num_rels"):
+        if hasattr(self.dataset, "task_type") and self.dataset.task_type == "link prediction":
+            return 2
+        elif hasattr(self.dataset, "num_rels"):
             return self.dataset.num_rels
-        return self.dataset.num_classes
+        else:
+            return self.dataset.num_classes
 
     @property
     def num_nodes(self):
