@@ -383,42 +383,42 @@ class Readout(nn.Module):
 
 class VersatileEmbedding(nn.Module):
 
-    def __init__(self, embedding_type, num_nodes, num_channels,
+    def __init__(self, embedding_type, num_entities, num_channels,
                  pretrained_embedding=None, freeze_pretrained=False):
         super().__init__()
 
         self.embedding_type = embedding_type
-        self.num_nodes = num_nodes
+        self.num_entities = num_entities
         self.num_channels = num_channels
         if not isinstance(num_channels, int) or num_channels <= 0:
             assert embedding_type == "UseRawFeature"
 
         if self.embedding_type == "Embedding":
-            self.embedding = nn.Embedding(self.num_nodes, self.num_channels)
+            self.embedding = nn.Embedding(self.num_entities, self.num_channels)
         elif self.embedding_type == "Random":
-            self.embedding = nn.Embedding(self.num_nodes, self.num_channels)
+            self.embedding = nn.Embedding(self.num_entities, self.num_channels)
             self.embedding.weight.requires_grad = False
         elif self.embedding_type == "UseRawFeature":
             self.embedding = None
         elif self.embedding_type == "Pretrained":
             assert pretrained_embedding is not None
             N, C = pretrained_embedding.size()
-            assert self.num_nodes == N
+            assert self.num_entities == N
             assert self.num_channels == C
             self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze_pretrained)
         else:
             raise ValueError(f"Wrong global_channel_type: {self.embedding_type}")
 
-    def forward(self, x_indices):
+    def forward(self, indices_or_features):
         if self.embedding is not None:
-            return self.embedding(x_indices.squeeze())
+            return self.embedding(indices_or_features.squeeze())
         else:
-            return x_indices
+            return indices_or_features
 
     def __repr__(self):
         return '{}({}, {}, type={})'.format(
             self.__class__.__name__,
-            self.num_nodes,
+            self.num_entities,
             self.num_channels,
             self.embedding_type,
         )
@@ -531,7 +531,7 @@ if __name__ == '__main__':
 
     elif MODE == "VersatileEmbedding":
         _pte = torch.arange(11 * 32).view(11, 32).float()
-        de = VersatileEmbedding(embedding_type="Pretrained", num_nodes=11, num_channels=32,
+        de = VersatileEmbedding(embedding_type="Pretrained", num_entities=11, num_channels=32,
                                 pretrained_embedding=_pte, freeze_pretrained=False)
         cprint(de, "red")
         print("Embedding: {} +- {}".format(

@@ -21,18 +21,27 @@ class StaticGraphModel(LightningModule):
         self.save_hyperparameters(hparams)
 
         if data_module.num_node_features > 0:
-            embedding_type, num_emb_channels = "UseRawFeature", data_module.num_node_features
+            node_embedding_type, num_node_emb_channels = "UseRawFeature", data_module.num_node_features
         else:
-            embedding_type, num_emb_channels = self.h.embedding_type, self.h.in_channels
-        self.emb = VersatileEmbedding(
-            embedding_type=embedding_type,
-            num_nodes=data_module.num_nodes,
-            num_channels=num_emb_channels,
+            node_embedding_type, num_node_emb_channels = self.h.node_embedding_type, self.h.num_node_emb_channels
+        self.node_emb = VersatileEmbedding(
+            embedding_type=node_embedding_type,
+            num_entities=data_module.num_nodes,
+            num_channels=num_node_emb_channels,
         )
+        if self.h.use_edge_emb:
+            self.edge_emb = VersatileEmbedding(
+                embedding_type=self.h.edge_embedding_type,
+                num_entities=data_module.num_rels,
+                num_channels=self.h.num_edge_emb_channels,
+            )
+        else:
+            self.edge_emb = None
+
         self.encoder = GraphEncoder(
             layer_name=self.h.encoder_layer_name,
             num_layers=self.h.num_layers,
-            in_channels=num_emb_channels,
+            in_channels=num_node_emb_channels,
             hidden_channels=self.h.hidden_channels,
             out_channels=(self.h.out_channels or self.h.hidden_channels),  # use hidden if not given.
             activation=self.h.activation,
@@ -85,7 +94,7 @@ class StaticGraphModel(LightningModule):
             )
 
     def forward(self, x, edge_index) -> Tensor:
-        x = self.emb(x)
+        x = self.node_emb(x)
         x = self.encoder(x, edge_index)
         return x
 
@@ -95,10 +104,10 @@ class StaticGraphModel(LightningModule):
 
 
 if __name__ == '__main__':
-    NAME = "ogbl-collab"
+    NAME = "SingletonICEWS18"
     USE_TEMPORAL_DATA = False
     LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
-    EVAL_LOADER = "EdgeLoader"  # + None
+    EVAL_LOADER = "NoLoader"  # + None
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -124,10 +133,13 @@ if __name__ == '__main__':
 
     _sgm = StaticGraphModel(
         hparams=Namespace(
-            embedding_type="UseRawFeature",
+            node_embedding_type="Embedding",
+            num_node_emb_channels=128,
+            use_edge_emb=True,
+            edge_embedding_type="Embedding",
+            num_edge_emb_channels=128,
             encoder_layer_name="GATConv",
             num_layers=3,
-            in_channels=128,
             hidden_channels=256,
             out_channels=None,
             activation="relu",

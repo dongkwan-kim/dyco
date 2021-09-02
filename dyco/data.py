@@ -1,5 +1,5 @@
 from argparse import Namespace
-from typing import Type, Any, Optional, Union, Dict
+from typing import Type, Any, Optional, Union, Dict, Tuple
 from pprint import pprint
 
 import torch
@@ -15,8 +15,12 @@ from torch_geometric.utils import add_self_loops
 
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
-from dataset import get_dynamic_graph_dataset
+from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT
 from utils import try_getattr_dict
+
+
+DatasetType = Union[Type[InMemoryDataset],
+                    Tuple[Type[InMemoryDataset], Type[InMemoryDataset], Type[InMemoryDataset]]]
 
 
 class DyGraphDataModule(LightningDataModule):
@@ -28,7 +32,7 @@ class DyGraphDataModule(LightningDataModule):
     def __init__(self, hparams, prepare_data=False):
         super().__init__()
         self.save_hyperparameters(hparams)
-        self.dataset: Type[InMemoryDataset] or None = None
+        self._dataset: Type[InMemoryDataset] or None = None
         self.train_data, self.val_data, self.test_data = None, None, None
         self.split_idx: Union[Dict, None] = None
         self.model_kwargs = dict()
@@ -44,17 +48,28 @@ class DyGraphDataModule(LightningDataModule):
         return self.split_idx
 
     @property
+    def dataset(self):
+        return self._dataset[0] if isinstance(self._dataset, tuple) else self._dataset
+
+    @property
     def num_classes(self):
         if hasattr(self.dataset, "task_type") and self.dataset.task_type == "link prediction":
             return 2
-        elif hasattr(self.dataset, "num_rels"):
-            return self.dataset.num_rels
+        elif isinstance(self.dataset, (SingletonICEWS18, SingletonGDELT)):
+            # The task for them is a multi-class classification against
+            # the corresponding object and subject entities.
+            # Ref. https://github.com/rusty1s/pytorch_geometric/blob/master/examples/renet.py#L50-L51
+            return self.dataset.num_nodes
         else:
             return self.dataset.num_classes
 
     @property
-    def num_nodes(self):
+    def num_nodes(self) -> int:
         return self.dataset.num_nodes
+    
+    @property
+    def num_rels(self) -> int:
+        return self.dataset.num_rels if hasattr(self.dataset, "num_rels") else 0
 
     @property
     def num_node_features(self):
@@ -85,26 +100,26 @@ class DyGraphDataModule(LightningDataModule):
                 tfs.append(UseValEdgesAsInput(to_sparse_tensor=self.h.use_sparse_tensor, to_symmetric=True))
 
         transform = None if len(tfs) == 0 else Compose(tfs)
-        self.dataset = get_dynamic_graph_dataset(
+        self._dataset = get_dynamic_graph_dataset(
             path=self.h.dataset_path, name=self.h.dataset_name, transform=transform,
         )
         if self.h.dataset_name.startswith("JODIEDataset"):
             try:  # TemporalData
-                self.train_data, self.val_data, self.test_data = self.dataset[0].train_val_test_split(
+                self.train_data, self.val_data, self.test_data = self._dataset[0].train_val_test_split(
                     val_ratio=0.15, test_ratio=0.15)
             except AttributeError:  # Data
                 # todo: support split for Data
                 raise NotImplementedError
         elif self.h.dataset_name in ["SingletonICEWS18", "SingletonGDELT"]:
-            self.train_data, self.val_data, self.test_data = (d[0] for d in self.dataset)
+            self.train_data, self.val_data, self.test_data = (d[0] for d in self._dataset)
         elif self.h.dataset_name == "ogbn-arxiv":
-            self.split_idx = self.dataset.get_idx_split()
-            self.train_data, self.val_data, self.test_data = self.dataset[0], self.dataset[0], self.dataset[0]
+            self.split_idx = self._dataset.get_idx_split()
+            self.train_data, self.val_data, self.test_data = self._dataset[0], self._dataset[0], self._dataset[0]
             self.model_kwargs["add_self_loops"] = False  # important.
         elif self.h.dataset_name == "ogbl-collab":
-            self.split_idx = self.dataset.get_edge_split()
+            self.split_idx = self._dataset.get_edge_split()
             UseValEdgesAsInput.set_val_edge_index_for_compose(transform, self.split_idx)
-            self.train_data, self.val_data, self.test_data = self.dataset[0], self.dataset[0], self.dataset[0]
+            self.train_data, self.val_data, self.test_data = self._dataset[0], self._dataset[0], self._dataset[0]
         elif self.h.dataset_name == "BitcoinOTC":
             raise NotImplementedError
         else:
@@ -180,7 +195,7 @@ class DyGraphDataModule(LightningDataModule):
         return self._eval_loader(self.test_data, stage="test")
 
     def __repr__(self):
-        return "{}(dataset={})".format(self.__class__.__name__, self.dataset)
+        return "{}(dataset={})".format(self.__class__.__name__, self.h.dataset_name)
 
 
 if __name__ == '__main__':
