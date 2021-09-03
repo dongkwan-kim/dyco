@@ -8,9 +8,11 @@ from torch import Tensor
 import torch.nn.functional as F
 import torch.nn as nn
 
-from torch_geometric.utils import subgraph
+from torch_geometric.utils import subgraph, to_undirected
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_geometric.utils import to_dense_batch, softmax
+
+from torch_scatter import scatter
 
 import numpy as np
 from tqdm import tqdm
@@ -179,6 +181,35 @@ def subgraph_and_edge_mask(subset, edge_index, edge_attr=None, relabel_nodes=Fal
     return edge_index, edge_attr, mask
 
 
+def add_self_loops_v2(edge_index, edge_weight: Optional[torch.Tensor] = None,
+                      edge_attr: Optional[torch.Tensor] = None, edge_attr_reduce: str = "mean",
+                      fill_value: float = 1., num_nodes: Optional[int] = None):
+    r"""Extended method of torch_geometric.utils.add_self_loops that
+    supports :attr:`edge_attr`."""
+    N = maybe_num_nodes(edge_index, num_nodes)
+
+    loop_index = torch.arange(0, N, dtype=torch.long, device=edge_index.device)
+    loop_index = loop_index.unsqueeze(0).repeat(2, 1)
+
+    if edge_weight is not None:
+        assert edge_weight.numel() == edge_index.size(1)
+        loop_weight = edge_weight.new_full((N,), fill_value)
+        edge_weight = torch.cat([edge_weight, loop_weight], dim=0)
+
+    if edge_attr is not None:
+        assert edge_attr.size(0) == edge_index.size(1)
+        if edge_attr_reduce != "fill":
+            loop_attr = scatter(edge_attr, edge_index[0], dim=0, dim_size=N,
+                                reduce=edge_attr_reduce)
+        else:
+            loop_attr = edge_attr.new_full((N, edge_attr.size(1)), fill_value)
+        edge_attr = torch.cat([edge_attr, loop_attr], dim=0)
+
+    edge_index = torch.cat([edge_index, loop_index], dim=1)
+
+    return edge_index, edge_weight, edge_attr
+
+
 def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
     mask_dict = dict()
     for k, idx in idx_dict.items():
@@ -191,7 +222,7 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "sort_and_relabel"
+    METHOD = "add_self_loops_v2"
 
     from pytorch_lightning import seed_everything
     seed_everything(42)
@@ -199,5 +230,21 @@ if __name__ == '__main__':
     if METHOD == "to_index_chunks_by_values":
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
         print(to_index_chunks_by_values(_tensor_1d))
+
+    if METHOD == "add_self_loops_v2":
+        _edge_index = torch.Tensor([[0, 0, 1],
+                                    [1, 2, 2]]).long()
+        _edge_attr = torch.eye(3).float()
+
+        _edge_index, _edge_attr = to_undirected(_edge_index, _edge_attr)
+        print(_edge_index)
+        print(_edge_attr)
+        print("-" * 7)
+
+        _edge_index, _, _edge_attr = add_self_loops_v2(
+            edge_index=_edge_index, edge_attr=_edge_attr, edge_attr_reduce="sum")
+        print(_edge_index)
+        print(_edge_attr)
+
     else:
         raise ValueError("Wrong method: {}".format(METHOD))
