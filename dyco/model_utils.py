@@ -127,7 +127,7 @@ class MLP(nn.Module):
 
         self.fc = nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         return self.fc(x)
 
     def __repr__(self):
