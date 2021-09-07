@@ -18,8 +18,11 @@ import numpy as np
 from tqdm import tqdm
 
 
+__MAGIC__ = "This is magic, please trust the author."
+
+
 def try_getattr(o, name_list: List[str],
-                default=None, iter_persistently=True,
+                default=__MAGIC__, iter_persistently=True,
                 as_dict=True) -> Union[Dict[str, Any], List]:
     ret_list = list()
     for name in name_list:
@@ -34,7 +37,7 @@ def try_getattr(o, name_list: List[str],
             return {n: r for n, r in zip(name_list, ret_list)}
         else:
             return ret_list
-    elif default is not None:
+    elif default != __MAGIC__:
         if as_dict:
             return {"default": default}
         else:
