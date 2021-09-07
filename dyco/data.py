@@ -175,9 +175,9 @@ class DyGraphDataModule(LightningDataModule):
             neg_valid_edge = self.split_edge[stage]['edge_neg']
 
             if stage == "valid":
-                kwargs_at_first_batch = try_getattr_dict(eval_data, ["adj_t", "edge_index"])
+                kwargs_at_first_batch = try_getattr_dict(eval_data, ["x", "adj_t", "edge_index"])
             else:  # test
-                kwargs_at_first_batch = try_getattr_dict(eval_data, ["full_adj_t", "full_edge_index"])
+                kwargs_at_first_batch = try_getattr_dict(eval_data, ["x", "full_adj_t", "full_edge_index"])
 
             loader = EdgeLoader(batch_size=self.h.batch_size,
                                 pos_edge_index=pos_valid_edge, neg_edge_index=neg_valid_edge,

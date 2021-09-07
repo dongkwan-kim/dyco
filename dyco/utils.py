@@ -18,13 +18,19 @@ import numpy as np
 from tqdm import tqdm
 
 
-def try_getattr_dict(o, name_list: List[str], default=None) -> Dict[str, Any]:
+def try_getattr_dict(o, name_list: List[str],
+                     default=None, iter_persistently=True) -> Dict[str, Any]:
+    ret_dict = dict()
     for name in name_list:
         try:
-            return {name: getattr(o, name)}
+            ret_dict[name] = getattr(o, name)
+            if not iter_persistently:
+                return ret_dict
         except AttributeError:
             pass
-    if default is not None:
+    if len(ret_dict) > 0:
+        return ret_dict
+    elif default is not None:
         return {"default": default}
     else:
         raise AttributeError
