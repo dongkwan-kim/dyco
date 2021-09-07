@@ -1,4 +1,5 @@
 from argparse import Namespace
+from typing import Dict, Union
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,17 @@ from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor
+from utils import try_getattr
+
+
+def x_and_edge(batch) -> Dict[str, Tensor]:
+    x = getattr(batch, "x", None)
+    rel = getattr(batch, "rel", None)
+    edge_index = try_getattr(batch, ["adj_t", "edge_index"], None,
+                             iter_persistently=False, as_dict=False)
+    pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
+                             iter_persistently=True, as_dict=True)
+    return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
 
 
 class StaticGraphModel(LightningModule):
@@ -93,14 +105,90 @@ class StaticGraphModel(LightningModule):
                 dropout_channels=self.h.dropout_channels,
             )
 
-    def forward(self, x, edge_index) -> Tensor:
-        x = self.node_emb(x)
-        x = self.encoder(x, edge_index)
-        return x
+    def forward(self,
+                x, edge_index, rel=None,
+                encoded_x=None,
+                use_predictor=True, return_encoded_x=False,
+                pred_edges: Dict[str, Tensor] = None
+                ) -> Dict[str, Tensor]:
+
+        if encoded_x is None:
+            x = self.node_emb(x)
+            edge_attr = self.edge_emb(rel) if rel is not None else None
+            x = self.encoder(x, edge_index, edge_attr=edge_attr)
+        else:
+            x = encoded_x
+
+        out = dict()
+        if return_encoded_x:
+            out["encoded_x"] = x
+        if self.projector is not None:  # MLP
+            proj_x = self.projector(x)
+            out["proj_x"] = proj_x
+        if use_predictor:  # MLP, EdgePredictor
+            assert self.predictor is not None
+            if pred_edges is None:
+                logits = self.predictor(x, edge_index)
+                out["logits"] = logits
+            else:
+                for pred_name, _pred_edge in pred_edges.items():
+                    _logits = self.predictor(x, _pred_edge)
+                    out[f"{pred_name}_logits"] = _logits
+
+        # Dict of encoded_x, proj_x, logits, pos_edge_logits, neg_edge_logits
+        return out
 
     def configure_optimizers(self):
         return torch.optim.Adam(params=self.parameters(),
                                 lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
+
+    def training_step(self, batch: Batch, batch_idx: int):
+        """
+        :param batch: Keys are
+            batch=[N], edge_index=[2, E], adj_t=[N, N, nnz], neg_edge=[2, B], pos_edge=[2, B],
+            rel=[E, 1], train_mask=[N], x=[N, F], y=[N, 1] and ptr, t,
+        :param batch_idx:
+        :return:
+        """
+        out = self.forward(
+            **x_and_edge(batch),  # x, edge_index, (and rel, pred_edges)
+            use_predictor=self.h.use_predictor_at_training,
+            return_encoded_x=(self.h.dataloader_type == "SnapshotGraphLoader"),
+        )
+        # todo
+        # Loss(out["logits"], data.train_mask, data.y)
+        # Loss(out["pos_edge_logits"], out["neg_edge_logits"])
+        # Loss(out["encoded_x"], batch)
+        """
+        x, y, adjs_t = batch
+        y_hat = self(x, adjs_t)
+        train_loss = F.cross_entropy(y_hat, yToSparseTensor)
+        self.train_acc(y_hat.softmax(dim=-1), y)
+        self.log('train_acc', self.train_acc, prog_bar=True, on_step=False,
+                 on_epoch=True)
+        return train_loss
+        """
+        raise NotImplementedError
+
+    def validation_step(self, batch: Batch, batch_idx: int):
+        """
+        x, y, adjs_t = batch
+        y_hat = self(x, adjs_t)
+        self.val_acc(y_hat.softmax(dim=-1), y)
+        self.log('val_acc', self.val_acc, prog_bar=True, on_step=False,
+                 on_epoch=True)
+        """
+        raise NotImplementedError
+
+    def test_step(self, batch: Batch, batch_idx: int):
+        """
+        x, y, adjs_t = batch
+        y_hat = self(x, adjs_t)
+        self.test_acc(y_hat.softmax(dim=-1), y)
+        self.log('test_acc', self.test_acc, prog_bar=True, on_step=False,
+                 on_epoch=True)
+        """
+        raise NotImplementedError
 
 
 if __name__ == '__main__':
@@ -149,6 +237,9 @@ if __name__ == '__main__':
             layer_kwargs={"heads": 8},
             use_projection=True,
             predictor_type="Edge/HadamardProduct",
+            use_predictor_at_training=True,
+            learning_rate=1e-3,
+            weight_decay=1e-5,
         ),
         data_module=_dgdm,
     )
