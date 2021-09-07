@@ -1,6 +1,6 @@
 import time
 from pprint import pprint
-from typing import Dict, Any, List, Tuple, Optional, Callable
+from typing import Dict, Any, List, Tuple, Optional, Callable, Union
 
 import torch
 from termcolor import cprint
@@ -18,20 +18,27 @@ import numpy as np
 from tqdm import tqdm
 
 
-def try_getattr_dict(o, name_list: List[str],
-                     default=None, iter_persistently=True) -> Dict[str, Any]:
-    ret_dict = dict()
+def try_getattr(o, name_list: List[str],
+                default=None, iter_persistently=True,
+                as_dict=True) -> Union[Dict[str, Any], List]:
+    ret_list = list()
     for name in name_list:
         try:
-            ret_dict[name] = getattr(o, name)
+            ret_list.append(getattr(o, name))
             if not iter_persistently:
-                return ret_dict
+                break
         except AttributeError:
             pass
-    if len(ret_dict) > 0:
-        return ret_dict
+    if len(ret_list) > 0:
+        if as_dict:
+            return {n: r for n, r in zip(name_list, ret_list)}
+        else:
+            return ret_list
     elif default is not None:
-        return {"default": default}
+        if as_dict:
+            return {"default": default}
+        else:
+            return [default]
     else:
         raise AttributeError
 

@@ -16,7 +16,7 @@ from torch_geometric.utils import add_self_loops
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
 from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT
-from utils import try_getattr_dict
+from utils import try_getattr
 
 
 DatasetType = Union[Type[InMemoryDataset],
@@ -175,9 +175,9 @@ class DyGraphDataModule(LightningDataModule):
             neg_valid_edge = self.split_edge[stage]['edge_neg']
 
             if stage == "valid":
-                kwargs_at_first_batch = try_getattr_dict(eval_data, ["x", "adj_t", "edge_index"])
+                kwargs_at_first_batch = try_getattr(eval_data, ["x", "adj_t", "edge_index"])
             else:  # test
-                kwargs_at_first_batch = try_getattr_dict(eval_data, ["x", "full_adj_t", "full_edge_index"])
+                kwargs_at_first_batch = try_getattr(eval_data, ["x", "full_adj_t", "full_edge_index"])
 
             loader = EdgeLoader(batch_size=self.h.batch_size,
                                 pos_edge_index=pos_valid_edge, neg_edge_index=neg_valid_edge,

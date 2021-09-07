@@ -224,12 +224,12 @@ class EdgeLoader:
         neg_edge_index = torch.randint(0, self.num_nodes, pos_edge_index.size(), dtype=torch.long)
         return pos_edge_index, neg_edge_index
 
-    def format_batch(self, enumerated_edge_pair):
+    def format_iteration(self, enumerated_edge_pair):
         idx, (pos_edge, neg_edge) = enumerated_edge_pair
         batch_dict = dict(pos_edge=pos_edge, neg_edge=neg_edge)
         if idx == 0:
             batch_dict.update(**self.kwargs_at_first_batch)
-        return batch_dict
+        return Data(**batch_dict)
 
     def __iter__(self):
 
@@ -242,7 +242,7 @@ class EdgeLoader:
             it = iter_transform(self.pos_loader, transform=self.add_trivial_negatives)
         else:
             raise AttributeError(f"neg_loader={self.neg_loader}, use_neg_transform={self.use_neg_transform}")
-        return iter_transform(enumerate(it), transform=self.format_batch)
+        return iter_transform(enumerate(it), transform=self.format_iteration)
 
     def __len__(self):
         if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
