@@ -288,13 +288,13 @@ class EdgePredictor(nn.Module):
 
     def forward(self, x, edge_index):
         x_i, x_j = x[edge_index[0]], x[edge_index[1]]  # [E, F]
-        if self.predictor_type == "Dot-product":
+        if self.predictor_type == "DotProduct":
             x_i, x_j = self.mlp(x_i), self.mlp(x_j)
             logits = torch.einsum("ef,ef->e", x_i, x_j)
         elif self.predictor_type == "Concat":
             e = torch.cat([x_i, x_j], dim=-1)  # [E, 2F]
             logits = self.mlp(e)
-        elif self.predictor_type == "Hadamard-product":
+        elif self.predictor_type == "HadamardProduct":
             e = x_i * x_j  # [E, F]
             logits = self.mlp(e)
         else:
