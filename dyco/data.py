@@ -141,9 +141,10 @@ class DyGraphDataModule(LightningDataModule):
             )
         elif self.h.dataloader_type == "EdgeLoader":
             pos_train_edge = self.split_edge["train"]["edge"]
+            kwargs = try_getattr(self.train_data, ["x", "adj_t", "edge_index"])
             loader = EdgeLoader(batch_size=self.h.batch_size,
                                 pos_edge_index=pos_train_edge, neg_edge_index="trivial_random_samples",
-                                num_nodes=self.num_nodes, shuffle=True)
+                                num_nodes=self.num_nodes, additional_kwargs=kwargs, shuffle=True)
         elif self.h.dataloader_type == "NoLoader":
             loader = [self.train_data]
         else:
@@ -175,13 +176,14 @@ class DyGraphDataModule(LightningDataModule):
             neg_valid_edge = self.split_edge[stage]['edge_neg']
 
             if stage == "valid":
-                kwargs_at_first_batch = try_getattr(eval_data, ["x", "adj_t", "edge_index"])
+                kwargs = try_getattr(eval_data, ["x", "adj_t", "edge_index"])
             else:  # test
-                kwargs_at_first_batch = try_getattr(eval_data, ["x", "full_adj_t", "full_edge_index"])
+                kwargs = try_getattr(eval_data, ["x", "full_adj_t", "full_edge_index"])
 
             loader = EdgeLoader(batch_size=self.h.batch_size,
                                 pos_edge_index=pos_valid_edge, neg_edge_index=neg_valid_edge,
-                                num_nodes=self.num_nodes, kwargs_at_first_batch=kwargs_at_first_batch,
+                                num_nodes=self.num_nodes,
+                                additional_kwargs=kwargs, batch_idx_to_add_kwargs=0,
                                 shuffle=False)
         else:
             raise ValueError("Wrong options: ({}, use_temporal_data={})".format(

@@ -200,10 +200,13 @@ class SnapshotGraphLoader(DataLoader):
 class EdgeLoader:
 
     def __init__(self, batch_size, pos_edge_index, neg_edge_index=None,
-                 num_nodes=None, kwargs_at_first_batch: Dict = None,
+                 num_nodes=None, additional_kwargs: Dict = None,
+                 batch_idx_to_add_kwargs: Union[str, int] = "all",
                  shuffle=False, **kwargs):
         self.num_nodes = num_nodes
-        self.kwargs_at_first_batch = kwargs_at_first_batch or {}
+        self.additional_kwargs = additional_kwargs or {}
+        self.batch_idx_to_add_kwargs = batch_idx_to_add_kwargs
+        assert batch_idx_to_add_kwargs == "all" or isinstance(batch_idx_to_add_kwargs, int)
         self.pos_loader = DataLoader(pos_edge_index, batch_size, shuffle, collate_fn=self.__collate__, **kwargs)
 
         assert (neg_edge_index is None) or \
@@ -227,8 +230,10 @@ class EdgeLoader:
     def format_iteration(self, enumerated_edge_pair):
         idx, (pos_edge, neg_edge) = enumerated_edge_pair
         batch_dict = dict(pos_edge=pos_edge, neg_edge=neg_edge)
-        if idx == 0:
-            batch_dict.update(**self.kwargs_at_first_batch)
+        if self.batch_idx_to_add_kwargs == "all":
+            batch_dict.update(**self.additional_kwargs)
+        elif self.batch_idx_to_add_kwargs == idx:
+            batch_dict.update(**self.additional_kwargs)
         return Data(**batch_dict)
 
     def __iter__(self):
@@ -296,20 +301,22 @@ if __name__ == "__main__":
         cprint("-- w/ trivial_random_samples and kwargs_at_first_batch", "green")
         _loader = EdgeLoader(
             batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index="trivial_random_samples",
-            kwargs_at_first_batch={"wow": 123},
+            additional_kwargs={"wow": 123}, batch_idx_to_add_kwargs="all",
             num_nodes=_data.num_nodes)
         for i, _batch in enumerate(tqdm(_loader)):
-            pprint((i, _batch))
+            pprint(_batch)
             if i == 1:
                 break
 
         cprint("-- w/ neg_edge_index", "green")
         _loader = EdgeLoader(
             batch_size=8, pos_edge_index=_pos_valid_edge, neg_edge_index=_neg_valid_edge,
+            additional_kwargs={"wow": 123}, batch_idx_to_add_kwargs=0,
             num_nodes=_data.num_nodes)
         for i, _batch in enumerate(tqdm(_loader)):
             pprint(_batch)
-            break
+            if i == 1:
+                break
 
         cprint("-- wo/ neg_edge_index", "green")
         _loader = EdgeLoader(
@@ -317,4 +324,5 @@ if __name__ == "__main__":
             num_nodes=_data.num_nodes)
         for i, _batch in enumerate(tqdm(_loader)):
             pprint(_batch)
-            break
+            if i == 1:
+                break
