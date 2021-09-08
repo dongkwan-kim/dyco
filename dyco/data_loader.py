@@ -1,7 +1,7 @@
 import os
 from itertools import zip_longest
 from pprint import pprint
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Tuple, Callable
 
 import torch
 from torch import Tensor
@@ -15,7 +15,7 @@ from torch_geometric.utils import add_self_loops
 from tqdm import tqdm
 
 from dataset import get_dynamic_graph_dataset
-from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data
+from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data, add_trivial_neg_edges
 from utils import (torch_setdiff1d, to_index_chunks_by_values,
                    subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask, iter_transform)
 
@@ -239,10 +239,13 @@ class EdgeLoader:
     def __collate__(index_list):
         return default_collate(index_list).t()  # transpose to make [2, E]
 
-    def add_trivial_negatives(self, pos_edge_index):
-        # Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L114
-        neg_edge_index = torch.randint(0, self.num_nodes, pos_edge_index.size(), dtype=torch.long)
-        return pos_edge_index, neg_edge_index
+    def get_add_trivial_negatives(self) -> Callable:
+
+        def _add_trivial_negatives(pos_edge_index) -> Tuple[Tensor, Tensor]:
+            return add_trivial_neg_edges(pos_edge_index, self.num_nodes)
+
+        # pos_edge_index, neg_edge_index
+        return _add_trivial_negatives
 
     def format_iteration(self, enumerated_edge_pair):
         idx, (pos_edge, neg_edge) = enumerated_edge_pair
@@ -261,7 +264,7 @@ class EdgeLoader:
         if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
             it = zip_longest(self.pos_loader, self.neg_loader, fillvalue=None)
         elif self.use_neg_transform:
-            it = iter_transform(self.pos_loader, transform=self.add_trivial_negatives)
+            it = iter_transform(self.pos_loader, transform=self.get_add_trivial_negatives())
         else:
             raise AttributeError(f"neg_loader={self.neg_loader}, use_neg_transform={self.use_neg_transform}")
         return iter_transform(enumerate(it), transform=self.format_iteration)

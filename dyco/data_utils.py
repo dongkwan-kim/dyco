@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Tuple
 
 import torch
 from torch import Tensor
@@ -221,6 +221,20 @@ class ToTemporalData(object):
         return f'{self.__class__.__name__}()'
 
 
+class FromTemporalData(object):
+
+    def __call__(self, data):
+        if isinstance(data, Data):  # already data
+            return data
+        elif isinstance(data, TemporalData):
+            return from_temporal_to_singleton_data(data)
+        else:
+            raise TypeError("Wrong type: {}".format(type(data)))
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}()'
+
+
 class ToSymSparseTensor(ToSparseTensor):
 
     def __call__(self, data):
@@ -281,15 +295,8 @@ class UseValEdgesAsInput(object):
         return data
 
 
-class FromTemporalData(object):
-
-    def __call__(self, data):
-        if isinstance(data, Data):  # already data
-            return data
-        elif isinstance(data, TemporalData):
-            return from_temporal_to_singleton_data(data)
-        else:
-            raise TypeError("Wrong type: {}".format(type(data)))
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
+def add_trivial_neg_edges(pos_edge_index, num_nodes) -> Tuple[Tensor, Tensor]:
+    # Implement
+    # https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L114
+    neg_edge_index = torch.randint(0, num_nodes, pos_edge_index.size(), dtype=torch.long)
+    return pos_edge_index, neg_edge_index
