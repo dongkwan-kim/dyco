@@ -1,4 +1,5 @@
 import time
+from functools import reduce
 from pprint import pprint
 from typing import Dict, Any, List, Tuple, Optional, Callable, Union
 
@@ -73,6 +74,18 @@ def exist_attr(obj, name):
 def del_attrs(o, keys: List[str]):
     for k in keys:
         delattr(o, k)
+
+
+def rename_attr(obj, old_name, new_name):
+    # https://stackoverflow.com/a/25310860
+    obj.__dict__[new_name] = obj.__dict__.pop(old_name)
+
+
+def func_compose(*funcs):
+    # compose(f1, f2, f3)(x) == f3(f2(f1(x)))
+    # https://stackoverflow.com/a/16739663
+    funcs = [_f for _f in funcs if _f is not None]
+    return lambda x: reduce(lambda acc, f: f(acc), funcs, x)
 
 
 def debug_with_exit(func):  # Decorator
