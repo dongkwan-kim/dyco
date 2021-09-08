@@ -282,9 +282,8 @@ class EdgeLoader:
     def __iter__(self):
 
         if self.neg_loader is None and not self.use_neg_transform:
-            return iter(self.pos_loader)
-
-        if self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
+            it = zip_longest(iter(self.pos_loader), [], fillvalue=None)
+        elif self.neg_loader is not None and isinstance(self.neg_loader, DataLoader):
             it = zip_longest(self.pos_loader, self.neg_loader, fillvalue=None)
         elif self.use_neg_transform:
             it = iter_transform(self.pos_loader, transform=self.get_add_trivial_negatives())
@@ -306,7 +305,7 @@ if __name__ == "__main__":
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
     NAME = "ogbl-collab"
-    LOADER = "SnapshotGraphLoader"
+    LOADER = "EdgeLoader"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
