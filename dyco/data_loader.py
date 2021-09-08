@@ -1,7 +1,7 @@
 import os
 from itertools import zip_longest
 from pprint import pprint
-from typing import List, Dict, Union, Tuple, Callable
+from typing import List, Dict, Union, Tuple, Callable, Optional
 
 import torch
 from torch import Tensor
@@ -17,7 +17,23 @@ from tqdm import tqdm
 from dataset import get_dynamic_graph_dataset
 from data_utils import Loading, CoarseSnapshotData, from_temporal_to_singleton_data, add_trivial_neg_edges
 from utils import (torch_setdiff1d, to_index_chunks_by_values,
-                   subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask, iter_transform)
+                   subgraph_and_edge_mask, exist_attr, startswith_any, idx_to_mask, iter_transform, rename_attr,
+                   func_compose)
+
+
+def _add_trivial_negatives_to_snapshot(data: CoarseSnapshotData) -> CoarseSnapshotData:
+    assert hasattr(data, "train_edge_index")
+    data.train_edge_index, data.train_neg_edge_index = add_trivial_neg_edges(
+        data.train_edge_index, data.num_nodes)
+    return data
+
+
+def _rename_to_pos_and_neg_edge(data: Batch) -> Batch:
+    assert hasattr(data, "train_edge_index")
+    assert hasattr(data, "train_neg_edge_index")
+    rename_attr(data, "train_edge_index", "pos_edge")
+    rename_attr(data, "train_neg_edge_index", "neg_edge")
+    return data
 
 
 class SnapshotGraphLoader(DataLoader):
@@ -28,7 +44,7 @@ class SnapshotGraphLoader(DataLoader):
                  split_edge_of_last_snapshot=False,
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
-                 transform=None,
+                 transform_after_collation=None,
                  snapshot_dir="./", num_nodes=None,
                  node_split_idx=None, edge_split_idx=None,
                  **kwargs):
@@ -42,16 +58,20 @@ class SnapshotGraphLoader(DataLoader):
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
 
-        self.transform = transform
+        self.transform_after_collation: Callable[[Batch], Batch] = transform_after_collation
         self.snapshot_dir = snapshot_dir
 
         if node_split_idx is not None:  # for ogbn-arxiv
             node_split_mask = idx_to_mask(node_split_idx, num_nodes)
             data.train_mask = node_split_mask["train"]
 
+        self.transform_per_snapshot: Optional[Callable[[CoarseSnapshotData], CoarseSnapshotData]] = None
         if edge_split_idx is not None:  # for ogbl-collab
             data.train_edge_index = edge_split_idx["train"]["edge"].t()
             data.train_edge_year = edge_split_idx["train"]["year"]
+            self.transform_per_snapshot = _add_trivial_negatives_to_snapshot
+            self.transform_after_collation = func_compose(
+                self.transform_after_collation, _rename_to_pos_and_neg_edge)
 
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
@@ -138,10 +158,13 @@ class SnapshotGraphLoader(DataLoader):
                 snapshot_sublist = self.snapshot_list[low:high]
                 data_at_t_within_steps = CoarseSnapshotData.aggregate(snapshot_sublist)
                 data_at_t_list.append(data_at_t_within_steps)
-            b = CoarseSnapshotData.to_batch(data_at_t_list, self.attr_requirements)
+            b = CoarseSnapshotData.to_batch(
+                data_at_t_list,
+                pernode_attrs=self.attr_requirements,
+                transform_per_snapshot=self.transform_per_snapshot,
+                transform_per_batch=self.transform_after_collation)
         else:
             raise ValueError
-        b = self.transform(b) if self.transform is not None else b
         return b
 
     def disassemble_to_multi_snapshots(self, data: Data, time_name: str,

@@ -1,5 +1,6 @@
 from enum import Enum, auto
-from typing import List, Dict, Union, Tuple
+from pprint import pprint
+from typing import List, Dict, Union, Tuple, Callable
 
 import torch
 from torch import Tensor
@@ -66,13 +67,17 @@ class CoarseSnapshotData(Data):
     @staticmethod
     def to_batch(snapshot_sublist: List,
                  pernode_attrs: Dict[str, Tensor] = None,
-                 num_nodes: int = None) -> Batch:
+                 num_nodes: int = None,
+                 transform_per_snapshot: Callable = None,
+                 transform_per_batch: Callable = None) -> Batch:
         """
         :param snapshot_sublist: List[SnapshotData],
             e.g., SnapshotData(edge_index=[2, E], t=[1])
         :param pernode_attrs: Dict[str, Tensor]
             e.g., {"x": tensor([[...], [...]]), "y": tensor([[...], [...]])}
         :param num_nodes: if pernode_attrs is not given, use this.
+        :param transform_per_snapshot: Transform from CoarseSnapshotData to CoarseSnapshotData
+        :param transform_per_batch: Transform from Batch to Batch
         :return: Batch,
             e.g., Batch(batch=[26709], edge_index=[2, 48866],
                         ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
@@ -88,6 +93,7 @@ class CoarseSnapshotData(Data):
         # finally construct the Batch object with them.
         mask = torch.zeros(num_nodes, dtype=torch.bool)
         assoc = torch.full((num_nodes,), -1, dtype=torch.long)
+        data_list = []
         for data in snapshot_sublist:
 
             existing_nodes = data.edge_index.view(-1)
@@ -109,6 +115,10 @@ class CoarseSnapshotData(Data):
             # *very* important for the batch construction
             data.increase_num_nodes_for_index = True
 
+            # Transform data if necessary
+            data_list.append(data if transform_per_snapshot is None
+                             else transform_per_snapshot(data))
+
             # re-init mask and assoc
             mask[:] = 0
             assoc[:] = -1
@@ -116,7 +126,8 @@ class CoarseSnapshotData(Data):
         b = Batch.from_data_list(
             snapshot_sublist,
             exclude_keys=["increase_num_nodes_for_index"])
-        return b
+
+        return b if transform_per_batch is None else transform_per_batch(b)
 
 
 def to_singleton_data(data_list) -> Data:
