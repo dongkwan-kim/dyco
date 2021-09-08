@@ -25,15 +25,18 @@ class SnapshotGraphLoader(DataLoader):
     def __init__(self, data: Union[Data, TemporalData, Batch],
                  loading_type=Loading.coarse,
                  batch_size=1, step_size=1,
+                 split_edge_of_last_snapshot=False,
                  shuffle=True, num_workers=0,
                  follow_batch=None, exclude_keys=None,
                  transform=None,
-                 snapshot_dir="./", num_nodes=None, node_split_idx=None,
+                 snapshot_dir="./", num_nodes=None,
+                 node_split_idx=None, edge_split_idx=None,
                  **kwargs):
 
         self._data = data
         self.loading_type = loading_type
         self.step_size = step_size
+        self.split_edge_of_last_snapshot = split_edge_of_last_snapshot
 
         self.follow_batch = follow_batch or []
         self.exclude_keys = exclude_keys or []
@@ -45,6 +48,10 @@ class SnapshotGraphLoader(DataLoader):
         if node_split_idx is not None:  # for ogbn-arxiv
             node_split_mask = idx_to_mask(node_split_idx, num_nodes)
             data.train_mask = node_split_mask["train"]
+
+        if edge_split_idx is not None:  # for ogbl-collab
+            data.train_edge_index = edge_split_idx["train"]["edge"].t()
+            data.train_edge_year = edge_split_idx["train"]["year"]
 
         if self.loading_type == Loading.coarse:
             # e.g., ogbn, ogbl, singleton*
@@ -90,9 +97,14 @@ class SnapshotGraphLoader(DataLoader):
             split_idx = dataset.get_idx_split()
         except AttributeError:
             split_idx = None
+        try:
+            split_edge = dataset.get_edge_split()
+        except AttributeError:
+            split_edge = None
         return dict(snapshot_dir=dataset.processed_dir,
                     num_nodes=num_nodes,
-                    node_split_idx=split_idx)
+                    node_split_idx=split_idx,
+                    edge_split_idx=split_edge)
 
     @staticmethod
     def get_loading_type(dataset_name: str) -> Loading:
@@ -150,6 +162,8 @@ class SnapshotGraphLoader(DataLoader):
         time_step = getattr(data, time_name)  # e.g., node_year, edge_year, t
 
         index_chunks_dict = to_index_chunks_by_values(time_step)  # Dict[Any, LongTensor]:
+        train_index_chunks_dict = to_index_chunks_by_values(
+            getattr(data, "train_edge_year")) if exist_attr(data, "train_edge_year") else None
 
         remained_edge_index = data.edge_index.clone()
         indices_until_curr = None
@@ -174,6 +188,9 @@ class SnapshotGraphLoader(DataLoader):
             # e.g., Data(edge_index=[2, E], edge_weight=[E, 1], edge_year=[E, 1], x=[E, F])
             elif "edge" in time_name:
                 sub_edge_index = remained_edge_index[:, indices]
+                if train_index_chunks_dict is not None:
+                    train_indices = train_index_chunks_dict[curr_time]
+                    kwg_for_data["train_edge_index"] = data.train_edge_index[:, train_indices]
 
             # index chunks are relations or events.
             # e.g., Data(edge_index=[2, 373018], rel=[373018, 1], t=[373018, 1])
@@ -263,7 +280,7 @@ if __name__ == "__main__":
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
     NAME = "ogbl-collab"
-    LOADER = "EdgeLoader"
+    LOADER = "SnapshotGraphLoader"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT

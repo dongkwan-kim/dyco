@@ -231,6 +231,11 @@ if __name__ == '__main__':
     cprint("Train ----", "green")
     for _i, _b in enumerate(_dgdm.train_dataloader()):
         pprint(_b)
+        try:
+            print("\t - edge_index", _b.edge_index.min(), _b.edge_index.max())
+            print("\t - train_edge_index", _b.train_edge_index.min(), _b.train_edge_index.max())
+        except AttributeError:
+            pass
         if _i == 2:
             break
     cprint("Valid ----", "green")

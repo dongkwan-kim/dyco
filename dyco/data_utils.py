@@ -96,7 +96,10 @@ class CoarseSnapshotData(Data):
             mask[existing_nodes] = 1
             snapshot_num_nodes = mask.sum()
             assoc[mask] = torch.arange(snapshot_num_nodes)
-            data.edge_index = assoc[data.edge_index]
+            for k in data.keys:
+                if "index" in k:  # *_edge_index
+                    # e.g., data.edge_index = assoc[data.edge_index]
+                    setattr(data, k, assoc[getattr(data, k)])
 
             # Distribute pernode attributes, such as x, y, etc.
             for attr_name, pernode_tensor in pernode_attrs.items():
