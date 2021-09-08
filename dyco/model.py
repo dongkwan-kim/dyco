@@ -14,11 +14,15 @@ from utils import try_getattr
 
 def x_and_edge(batch) -> Dict[str, Tensor]:
     x = getattr(batch, "x", None)
-    rel = getattr(batch, "rel", None)
     edge_index = try_getattr(batch, ["adj_t", "edge_index"], None,
                              iter_persistently=False, as_dict=False)
-    pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
-                             iter_persistently=True, as_dict=True)
+    rel = getattr(batch, "rel", None)
+    if rel is not None:
+        # Add pred_edges of {obj, sub}
+        raise NotImplementedError
+    else:
+        pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
+                                 iter_persistently=True, as_dict=True)
     return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
 
 
@@ -131,7 +135,11 @@ class StaticGraphModel(LightningModule):
                 logits = self.predictor(x, edge_index)
                 out["logits"] = logits
             else:
+                # {pos_edge, neg_edge} or {obj, sub}
                 for pred_name, _pred_edge in pred_edges.items():
+                    # todo
+                    #  input: edge_index=[sub, obj]
+                    #  output: obj_logits [N, F] || sub_logits [N, F]
                     _logits = self.predictor(x, _pred_edge)
                     out[f"{pred_name}_logits"] = _logits
 
@@ -155,7 +163,22 @@ class StaticGraphModel(LightningModule):
             use_predictor=self.h.use_predictor_at_training,
             return_encoded_x=(self.h.dataloader_type == "SnapshotGraphLoader"),
         )
-        # todo
+        # todo: out of predictor
+        if "logits" in out:
+            raise NotImplementedError
+        elif "pos_edge_logits" in out:
+            raise NotImplementedError
+        elif "obj_logits" in out:
+            raise NotImplementedError
+
+        # todo: out of projector
+        if "proj_x" in out:  # Use contrastive loss
+            raise NotImplementedError
+
+        # todo: cache encoded_x
+        if "encoded_x" in out:
+            raise NotImplementedError
+
         # Loss(out["logits"], data.train_mask, data.y)
         # Loss(out["pos_edge_logits"], out["neg_edge_logits"])
         # Loss(out["encoded_x"], batch)

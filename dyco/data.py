@@ -93,6 +93,10 @@ class DyGraphDataModule(LightningDataModule):
         elif self.h.dataset_name.startswith("JODIEDataset"):
             if not self.h.use_temporal_data:
                 tfs.append(FromTemporalData())
+        elif self.h.dattaset_name.startswith("Singleton"):
+            # todo: UseValEdgesAsInput for Singleton, Data
+            if not self.h.use_temporal_data:
+                raise NotImplementedError
         elif self.h.use_temporal_data:
             tfs.append(ToTemporalData())
         elif self.h.dataset_name == "ogbl-collab":
@@ -112,6 +116,8 @@ class DyGraphDataModule(LightningDataModule):
                 raise NotImplementedError
         elif self.h.dataset_name in ["SingletonICEWS18", "SingletonGDELT"]:
             self.train_data, self.val_data, self.test_data = (d[0] for d in self._dataset)
+            # todo: support split for Singleton*
+            raise NotImplementedError
         elif self.h.dataset_name == "ogbn-arxiv":
             self.split_idx = self._dataset.get_idx_split()
             self.train_data, self.val_data, self.test_data = self._dataset[0], self._dataset[0], self._dataset[0]
