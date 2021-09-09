@@ -15,6 +15,16 @@ from torch_scatter import scatter_add
 from utils import softmax_half, act, merge_dict_by_keys
 
 
+class EPSILON(object):
+
+    def __add__(self, other):
+        eps = 1e-7 if other.dtype == torch.float16 else 1e-15
+        return other + eps
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+
 class MyLinear(nn.Linear):
 
     def __init__(self, in_features: int, out_features: int):
