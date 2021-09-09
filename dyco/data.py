@@ -93,7 +93,7 @@ class DyGraphDataModule(LightningDataModule):
         elif self.h.dataset_name.startswith("JODIEDataset"):
             if not self.h.use_temporal_data:
                 tfs.append(FromTemporalData())
-        elif self.h.dattaset_name.startswith("Singleton"):
+        elif self.h.dataset_name.startswith("Singleton"):
             # todo: UseValEdgesAsInput for Singleton, Data
             if not self.h.use_temporal_data:
                 raise NotImplementedError
