@@ -47,9 +47,10 @@ class EventDatasetHelper:
 
     def add_mask(self, data):
         rel_split = self.get_rel_split()
-        for k, v in rel_split.items():
+        for k, v in sorted(rel_split.items()):
             if k in self.split:
                 setattr(data, f"{k}_mask", rel_split[k])
+                break
         return data
 
 

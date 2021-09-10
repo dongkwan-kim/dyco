@@ -16,14 +16,14 @@ from utils import try_getattr
 def x_and_edge(batch) -> Dict[str, Tensor]:
     x = getattr(batch, "x", None)
     edge_index = try_getattr(batch, ["adj_t", "edge_index"], None,
-                             iter_persistently=False, as_dict=False)
+                             iter_all=False, as_dict=False)
     rel = getattr(batch, "rel", None)
     if rel is not None:
         # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
         pred_edges = {"obj": batch.edge_index[0], "sub": batch.edge_index[1]}
     else:
         pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
-                                 iter_persistently=True, as_dict=True)
+                                 iter_all=True, as_dict=True)
     return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
 
 
@@ -159,6 +159,36 @@ class StaticGraphModel(LightningModule):
         return torch.optim.Adam(params=self.parameters(),
                                 lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
 
+    def get_predictor_loss(self, batch: Batch,
+                           x_and_edge_kwargs: Dict[str, Tensor],
+                           out: Dict[str, Tensor]):
+        if "log_prob" in out:
+            mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)
+            log_prob = out["log_prob"]
+            y = batch.y.squeeze(1)
+            # CrossEntropyLoss(logits[mask], y[mask])
+            pred_loss = self.predictor_loss(log_prob[mask], y[mask])
+        elif "pos_edge_prob" in out:
+            pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
+            # BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
+            pred_loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
+        elif "obj_log_prob" in out:
+            mask = try_getattr(batch, ["val_mask", "test_mask"], default=None, iter_all=False, as_dict=False)
+            # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
+            sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
+            obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
+            # CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
+            if mask is not None:
+                obj_pred_loss = self.predictor_loss(obj_log_prob, obj_node)
+                sub_pred_loss = self.predictor_loss(sub_log_prob, sub_node)
+            else:
+                obj_pred_loss = self.predictor_loss(obj_log_prob[mask], obj_node[mask])
+                sub_pred_loss = self.predictor_loss(sub_log_prob[mask], sub_node[mask])
+            pred_loss = obj_pred_loss + sub_pred_loss
+        else:
+            pred_loss = None
+        return pred_loss
+
     def training_step(self, batch: Batch, batch_idx: int):
         """
         :param batch: Keys are
@@ -173,25 +203,7 @@ class StaticGraphModel(LightningModule):
             use_predictor=self.h.use_predictor_at_training,
             return_encoded_x=(self.h.dataloader_type == "SnapshotGraphLoader"),
         )
-        if "log_prob" in out:
-            assert hasattr(batch, "train_mask")
-            train_mask, y = batch.train_mask, batch.y.squeeze(1)
-            log_prob = out["log_prob"]
-            # CrossEntropyLoss(logits[train_mask], y[train_mask])
-            pred_loss = self.predictor_loss(log_prob[train_mask], y[train_mask])
-            raise NotImplementedError
-        elif "pos_edge_prob" in out:
-            pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
-            # BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
-            pred_loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
-        elif "obj_log_prob" in out:
-            # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
-            sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
-            obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
-            # CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
-            obj_pred_loss = self.predictor_loss(obj_log_prob, obj_node)
-            sub_pred_loss = self.predictor_loss(sub_log_prob, sub_node)
-            pred_loss = obj_pred_loss + sub_pred_loss
+        pred_loss = self.get_predictor_loss(batch, x_and_edge_kwargs, out)
 
         # todo: out of projector
         if "proj_x" in out:  # Use contrastive loss

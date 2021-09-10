@@ -23,13 +23,13 @@ __MAGIC__ = "This is magic, please trust the author."
 
 
 def try_getattr(o, name_list: List[str],
-                default=__MAGIC__, iter_persistently=True,
-                as_dict=True) -> Union[Dict[str, Any], List]:
+                default=__MAGIC__, iter_all=True,
+                as_dict=True) -> Union[Dict[str, Any], List, Any]:
     ret_list = list()
     for name in name_list:
         try:
             ret_list.append(getattr(o, name))
-            if not iter_persistently:
+            if not iter_all:
                 break
         except AttributeError:
             pass
