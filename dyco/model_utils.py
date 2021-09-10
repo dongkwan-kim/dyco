@@ -296,8 +296,10 @@ class EdgePredictor(nn.Module):
         )
         self.out_activation = Activation(out_activation)
 
-    def forward(self, x, edge_index):
-        x_i, x_j = x[edge_index[0]], x[edge_index[1]]  # [E, F]
+    def forward(self, x=None, edge_index=None, x_i=None, x_j=None):
+        if x is not None and edge_index is not None:
+            x_i, x_j = x[edge_index[0]], x[edge_index[1]]  # [E, F]
+        assert x_i is not None and x_j is not None
         if self.predictor_type == "DotProduct":
             x_i, x_j = self.mlp(x_i), self.mlp(x_j)
             logits = torch.einsum("ef,ef->e", x_i, x_j)

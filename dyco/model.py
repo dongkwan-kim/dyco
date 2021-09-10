@@ -8,6 +8,7 @@ from torch import Tensor
 from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
+from model_loss import BCEWOLabelsLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor
 from utils import try_getattr
 
@@ -18,8 +19,8 @@ def x_and_edge(batch) -> Dict[str, Tensor]:
                              iter_persistently=False, as_dict=False)
     rel = getattr(batch, "rel", None)
     if rel is not None:
-        # Add pred_edges of {obj, sub}
-        raise NotImplementedError
+        # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
+        pred_edges = {"obj": batch.edge_index[0], "sub": batch.edge_index[1]}
     else:
         pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
                                  iter_persistently=True, as_dict=True)
@@ -45,7 +46,8 @@ class StaticGraphModel(LightningModule):
             num_entities=data_module.num_nodes,
             num_channels=num_node_emb_channels,
         )
-        if self.h.use_edge_emb:
+        use_edge_emb = data_module.num_rels > 0
+        if use_edge_emb:
             self.edge_emb = VersatileEmbedding(
                 embedding_type=self.h.edge_embedding_type,
                 num_entities=data_module.num_rels,
@@ -69,6 +71,7 @@ class StaticGraphModel(LightningModule):
         )
 
         self.projector, self.predictor = None, None
+        self.projector_loss, self.predictor_loss = None, None
 
         if self.h.use_projection:
             self.projector = MLP(
@@ -94,6 +97,7 @@ class StaticGraphModel(LightningModule):
                 dropout=self.h.dropout_channels,
                 activate_last=False,
             )
+            self.predictor_loss = nn.CrossEntropyLoss()
         elif self.h.predictor_type.lower().startswith("edge"):
             _, predictor_type = self.h.predictor_type.split("/")
             out_channels = 1 if data_module.num_classes == 2 else data_module.num_classes
@@ -108,6 +112,10 @@ class StaticGraphModel(LightningModule):
                 use_bn=self.h.use_bn,
                 dropout_channels=self.h.dropout_channels,
             )
+            if out_activation == "sigmoid":
+                self.predictor_loss = BCEWOLabelsLoss()
+            else:
+                self.predictor_loss = nn.CrossEntropyLoss()
 
     def forward(self,
                 x, edge_index, rel=None,
@@ -121,7 +129,7 @@ class StaticGraphModel(LightningModule):
             edge_attr = self.edge_emb(rel) if rel is not None else None
             x = self.encoder(x, edge_index, edge_attr=edge_attr)
         else:
-            x = encoded_x
+            x, edge_attr = encoded_x, None
 
         out = dict()
         if return_encoded_x:
@@ -132,18 +140,19 @@ class StaticGraphModel(LightningModule):
         if use_predictor:  # MLP, EdgePredictor
             assert self.predictor is not None
             if pred_edges is None:
-                logits = self.predictor(x, edge_index)
-                out["logits"] = logits
+                log_prob = self.predictor(x, edge_index)
+                out["log_prob"] = log_prob
             else:
                 # {pos_edge, neg_edge} or {obj, sub}
                 for pred_name, _pred_edge in pred_edges.items():
-                    # todo
-                    #  input: edge_index=[sub, obj]
-                    #  output: obj_logits [N, F] || sub_logits [N, F]
-                    _logits = self.predictor(x, _pred_edge)
-                    out[f"{pred_name}_logits"] = _logits
+                    if rel is not None:
+                        _prob = self.predictor(x=x, edge_index=_pred_edge)
+                    else:
+                        # [ x[sub/obj] || rel ] --> obj/sub_log_prob
+                        _prob = self.predictor(x_i=x[_pred_edge], x_j=edge_attr)
+                    out[f"{pred_name}_prob"] = _prob
 
-        # Dict of encoded_x, proj_x, logits, pos_edge_logits, neg_edge_logits
+        # Dict of encoded_x, proj_x, log_prob, pos_edge_prob, neg_edge_prob
         return out
 
     def configure_optimizers(self):
@@ -158,18 +167,31 @@ class StaticGraphModel(LightningModule):
         :param batch_idx:
         :return:
         """
+        x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
-            **x_and_edge(batch),  # x, edge_index, (and rel, pred_edges)
+            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
             use_predictor=self.h.use_predictor_at_training,
             return_encoded_x=(self.h.dataloader_type == "SnapshotGraphLoader"),
         )
-        # todo: out of predictor
-        if "logits" in out:
+        if "log_prob" in out:
+            assert hasattr(batch, "train_mask")
+            train_mask, y = batch.train_mask, batch.y.squeeze(1)
+            log_prob = out["log_prob"]
+            # CrossEntropyLoss(logits[train_mask], y[train_mask])
+            pred_loss = self.predictor_loss(log_prob[train_mask], y[train_mask])
             raise NotImplementedError
-        elif "pos_edge_logits" in out:
-            raise NotImplementedError
-        elif "obj_logits" in out:
-            raise NotImplementedError
+        elif "pos_edge_prob" in out:
+            pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
+            # BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
+            pred_loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
+        elif "obj_log_prob" in out:
+            # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
+            sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
+            obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
+            # CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
+            obj_pred_loss = self.predictor_loss(obj_log_prob, obj_node)
+            sub_pred_loss = self.predictor_loss(sub_log_prob, sub_node)
+            pred_loss = obj_pred_loss + sub_pred_loss
 
         # todo: out of projector
         if "proj_x" in out:  # Use contrastive loss
@@ -179,8 +201,6 @@ class StaticGraphModel(LightningModule):
         if "encoded_x" in out:
             raise NotImplementedError
 
-        # Loss(out["logits"], data.train_mask, data.y)
-        # Loss(out["pos_edge_logits"], out["neg_edge_logits"])
         # Loss(out["encoded_x"], batch)
         """
         x, y, adjs_t = batch
@@ -215,7 +235,7 @@ class StaticGraphModel(LightningModule):
 
 
 if __name__ == '__main__':
-    NAME = "SingletonICEWS18"
+    NAME = "ogbl-collab"
     USE_TEMPORAL_DATA = False
     LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
     EVAL_LOADER = "NoLoader"  # + None
@@ -246,7 +266,6 @@ if __name__ == '__main__':
         hparams=Namespace(
             node_embedding_type="Embedding",
             num_node_emb_channels=128,
-            use_edge_emb=True,
             edge_embedding_type="Embedding",
             num_edge_emb_channels=128,
             encoder_layer_name="GATConv",
