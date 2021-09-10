@@ -1,13 +1,13 @@
 import os
 from pprint import pprint
-from typing import Union, List
+from typing import Union, List, Dict, Type, Tuple
 
 import torch
 
 from torch_geometric.datasets import JODIEDataset
 from torch_geometric.datasets import BitcoinOTC
 from torch_geometric.datasets import ICEWS18, GDELT
-from torch_geometric.data import TemporalData, Data
+from torch_geometric.data import TemporalData, Data, InMemoryDataset
 from torch_geometric.datasets.icews import EventDataset
 
 from ogb.nodeproppred import PygNodePropPredDataset
@@ -18,45 +18,80 @@ from ogb.linkproppred import Evaluator as LinkEvaluator
 from data_utils import from_events_to_singleton_data, ToTemporalData
 
 
-class SingletonICEWS18(ICEWS18):
+DatasetType = Union[Type[InMemoryDataset],
+                    Tuple[Type[InMemoryDataset], Type[InMemoryDataset], Type[InMemoryDataset]]]
 
-    def __init__(self, root, split='train', transform=None, pre_transform=None, pre_filter=None):
+
+# noinspection PyUnresolvedReferences
+class EventDatasetHelper:
+
+    @property
+    def processed_file_names(self):
+        return ["train.pt", "val.pt", "test.pt", "train_val.pt", "train_val_test.pt"]
+
+    def process(self):
+        s = self.splits
+        data_list = super(self.parent_dataset, self).process()
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[2]])]), self.processed_paths[3])
+        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[3]])]), self.processed_paths[4])
+
+    def get_rel_split(self) -> Dict[str, slice]:
+        s = self.splits
+        return {"val": slice(s[1], s[2]), "test": slice(s[2], s[3])}
+
+    def __repr__(self):
+        return "{}(split={})".format(self.__class__.__name__, self.split)
+
+    def add_mask(self, data):
+        rel_split = self.get_rel_split()
+        for k, v in rel_split.items():
+            if k in self.split:
+                setattr(data, f"{k}_mask", rel_split[k])
+        return data
+
+
+class SingletonICEWS18(EventDatasetHelper, ICEWS18):
+
+    def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
         self.split = split
-        super(SingletonICEWS18, self).__init__(root, split, transform, pre_transform, pre_filter)
+        self.parent_dataset = ICEWS18
+        super(ICEWS18, self).__init__(root, transform, pre_transform, pre_filter)
+        idx = self.processed_file_names.index("{}.pt".format(split))
+        self.data, self.slices = torch.load(self.processed_paths[idx])
 
     def download(self):
         return super(SingletonICEWS18, self).download()
 
     def process(self):
-        s = self.splits
-        data_list = super(ICEWS18, self).process()
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
+        return super(SingletonICEWS18, self).process()
 
-    def __repr__(self):
-        return "{}(split={})".format(self.__class__.__name__, self.split)
+    def __getitem__(self, item):
+        got = super(SingletonICEWS18, self).__getitem__(item)
+        return self.add_mask(got)
 
 
-class SingletonGDELT(GDELT):
+class SingletonGDELT(EventDatasetHelper, GDELT):
 
-    def __init__(self, root, split='train', transform=None, pre_transform=None, pre_filter=None):
-        self.url = 'https://github.com/INK-USC/RE-Net/raw/master/data/GDELT'
+    def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
+        self.url = "https://github.com/INK-USC/RE-Net/raw/master/data/GDELT"
         self.split = split
-        super(SingletonGDELT, self).__init__(root, split, transform, pre_transform, pre_filter)
+        self.parent_dataset = GDELT
+        super(GDELT, self).__init__(root, transform, pre_transform, pre_filter)
+        idx = self.processed_file_names.index("{}.pt".format(split))
+        self.data, self.slices = torch.load(self.processed_paths[idx])
 
     def download(self):
         return super(SingletonGDELT, self).download()
 
     def process(self):
-        s = self.splits
-        data_list = super(GDELT, self).process()
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[0]:s[1]])]), self.processed_paths[0])
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[1]:s[2]])]), self.processed_paths[1])
-        torch.save(self.collate([from_events_to_singleton_data(data_list[s[2]:s[3]])]), self.processed_paths[2])
+        return super(SingletonGDELT, self).process()
 
-    def __repr__(self):
-        return "{}(split={})".format(self.__class__.__name__, self.split)
+    def __getitem__(self, item):
+        got = super(SingletonGDELT, self).__getitem__(item)
+        return self.add_mask(got)
 
 
 def _get_dataset_at_cls_dir(cls, path, transform=None, pre_transform=None, *args, **kwargs):
@@ -67,7 +102,7 @@ def _get_dataset_at_cls_dir(cls, path, transform=None, pre_transform=None, *args
         return cls(path_with_name, transform=transform, pre_transform=pre_transform, *args, **kwargs)
 
 
-def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=None, *args, **kwargs):
+def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=None, *args, **kwargs) -> DatasetType:
     if name.startswith("JODIEDataset"):
         _, sub_name = name.split("/")
         jodie_dataset = _get_dataset_at_cls_dir(JODIEDataset, path, transform=transform, pre_transform=pre_transform,
@@ -75,11 +110,13 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
         jodie_dataset.num_nodes = jodie_dataset.data.dst.max().item() + 1
         return jodie_dataset
     elif name in ["SingletonICEWS18", "SingletonGDELT"]:
+        assert "splits" in kwargs
+        splits: List[str] = kwargs.pop("splits")
         args_wo_split = (eval(name), path, *args)
         kwargs_wo_split = dict(transform=transform, pre_transform=pre_transform, **kwargs)
-        train_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split="train")
-        val_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split="val")
-        test_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split="test")
+        train_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split=splits[0])
+        val_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split=splits[1])
+        test_set = _get_dataset_at_cls_dir(*args_wo_split, **kwargs_wo_split, split=splits[2])
         return train_set, val_set, test_set
     elif name in ["BitcoinOTC"]:
         # todo: train-val-test split
@@ -96,9 +133,9 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
         raise ValueError("Wrong name: {}".format(name))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "ogbl-collab"
+    NAME = "SingletonICEWS18"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -110,20 +147,39 @@ if __name__ == '__main__':
     #   Data(edge_index=[2, 1734399], rel=[1734399, 1], t=[1734399, 1])
     # BitcoinOTC
     #   Data(edge_attr=[148], edge_index=[2, 148])
+    _dataset_kwargs = {}
+    if NAME.startswith("Singleton"):
+        _dataset_kwargs["splits"] = ["train", "train_val", "train_val_test"]
+
     _dataset = get_dynamic_graph_dataset(
         PATH, NAME,
         # transform=ToTemporalData(),  # if necessary.
+        **_dataset_kwargs,
     )
     if isinstance(_dataset, tuple):
+        for _d in _dataset:
+            print(_d[0])
+        print("-" * 10)
+        _all_dataset = _dataset
         _dataset = _dataset[0]
-    print(_dataset)
+    else:
+        _all_dataset = None
+    print("Using", _dataset)
     for d in _dataset:
         print(d)
 
     _data = _dataset[0]
 
     if NAME.startswith("Singleton"):
-        print(torch.unique(_data.t))
+        print("t", torch.unique(_data.t))
+        _split = _dataset.get_rel_split()
+        _train, _val, _test = _all_dataset
+        print("split", _split)
+        print(
+            "split_index",
+            _val[0].edge_index[:, _split["val"]].size(),
+            _test[0].edge_index[:, _split["test"]].size(),
+        )
 
     if NAME.startswith("JODIEDataset"):
         from collections import Counter
@@ -145,12 +201,12 @@ if __name__ == '__main__':
 
     if NAME == "ogbl-collab" and isinstance(_data, Data):
         _split_edge = _dataset.get_edge_split()
-        _pos_train_edge = _split_edge['train']['edge']
-        _pos_train_year = _split_edge['train']['year']
-        _pos_valid_edge = _split_edge['valid']['edge']
-        _neg_valid_edge = _split_edge['valid']['edge_neg']
-        _pos_test_edge = _split_edge['test']['edge']
-        _neg_test_edge = _split_edge['test']['edge_neg']
+        _pos_train_edge = _split_edge["train"]["edge"]
+        _pos_train_year = _split_edge["train"]["year"]
+        _pos_valid_edge = _split_edge["valid"]["edge"]
+        _neg_valid_edge = _split_edge["valid"]["edge_neg"]
+        _pos_test_edge = _split_edge["test"]["edge"]
+        _neg_test_edge = _split_edge["test"]["edge_neg"]
         assert _pos_train_edge.size() == torch.Size([1179052, 2])
         assert _pos_train_year.size() == torch.Size([1179052])
         assert torch.unique(_pos_train_edge).size() == torch.unique(_data.edge_index).size()

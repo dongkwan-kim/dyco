@@ -15,12 +15,8 @@ from torch_geometric.utils import add_self_loops
 
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
-from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT
+from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT, DatasetType
 from utils import try_getattr
-
-
-DatasetType = Union[Type[InMemoryDataset],
-                    Tuple[Type[InMemoryDataset], Type[InMemoryDataset], Type[InMemoryDataset]]]
 
 
 class DyGraphDataModule(LightningDataModule):
@@ -32,7 +28,7 @@ class DyGraphDataModule(LightningDataModule):
     def __init__(self, hparams, prepare_data=False):
         super().__init__()
         self.save_hyperparameters(hparams)
-        self._dataset: Type[InMemoryDataset] or None = None
+        self._dataset: Optional[DatasetType] = None
         self.train_data, self.val_data, self.test_data = None, None, None
         self.split_idx: Union[Dict, None] = None
         self.model_kwargs = dict()
@@ -78,8 +74,19 @@ class DyGraphDataModule(LightningDataModule):
         except AttributeError:
             return 0
 
+    @property
+    def dataset_kwargs(self) -> Dict:
+        if self.h.dataset_name in ["SingletonICEWS18", "SingletonGDELT"]:
+            if self.h.use_temporal_data:
+                return {"splits": ["train", "val", "test"]}
+            else:
+                return {"splits": ["train", "train_val", "train_val_test"]}
+        else:
+            return {}
+
     def prepare_data(self) -> None:
-        get_dynamic_graph_dataset(path=self.h.dataset_path, name=self.h.dataset_name)
+        get_dynamic_graph_dataset(path=self.h.dataset_path, name=self.h.dataset_name,
+                                  **self.dataset_kwargs)
 
     def setup(self, stage: Optional[str] = None) -> None:
 
@@ -93,10 +100,6 @@ class DyGraphDataModule(LightningDataModule):
         elif self.h.dataset_name.startswith("JODIEDataset"):
             if not self.h.use_temporal_data:
                 tfs.append(FromTemporalData())
-        elif self.h.dataset_name.startswith("Singleton"):
-            # todo: UseValEdgesAsInput for Singleton, Data
-            if not self.h.use_temporal_data:
-                raise NotImplementedError
         elif self.h.use_temporal_data:
             tfs.append(ToTemporalData())
         elif self.h.dataset_name == "ogbl-collab":
@@ -106,6 +109,7 @@ class DyGraphDataModule(LightningDataModule):
         transform = None if len(tfs) == 0 else Compose(tfs)
         self._dataset = get_dynamic_graph_dataset(
             path=self.h.dataset_path, name=self.h.dataset_name, transform=transform,
+            **self.dataset_kwargs,
         )
         if self.h.dataset_name.startswith("JODIEDataset"):
             try:  # TemporalData
@@ -116,8 +120,8 @@ class DyGraphDataModule(LightningDataModule):
                 raise NotImplementedError
         elif self.h.dataset_name in ["SingletonICEWS18", "SingletonGDELT"]:
             self.train_data, self.val_data, self.test_data = (d[0] for d in self._dataset)
-            # todo: support split for Singleton*
-            raise NotImplementedError
+            if not self.h.use_temporal_data:
+                self.split_idx = self._dataset[0].get_rel_split()
         elif self.h.dataset_name == "ogbn-arxiv":
             self.split_idx = self._dataset.get_idx_split()
             self.train_data, self.val_data, self.test_data = self._dataset[0], self._dataset[0], self._dataset[0]
@@ -208,14 +212,15 @@ class DyGraphDataModule(LightningDataModule):
 
 if __name__ == '__main__':
 
-    NAME = "ogbl-collab"
-    USE_TEMPORAL_DATA = False
-    LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
-    EVAL_LOADER = "EdgeLoader"  # + None
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
     # BitcoinOTC
+    NAME = "SingletonICEWS18"
+    LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
+    EVAL_LOADER = "NoLoader"  # + None
+    USE_TEMPORAL_DATA = False
+
     if LOADER == "EdgeLoader" or EVAL_LOADER == "EdgeLoader":
         assert NAME == "ogbl-collab"
 
