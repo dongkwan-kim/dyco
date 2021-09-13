@@ -1,5 +1,5 @@
 from argparse import Namespace
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -9,6 +9,7 @@ from torch import Tensor
 from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
+from data_utils import BatchType
 from model_loss import BCEWOLabelsLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor
 from utils import try_getattr
@@ -162,40 +163,56 @@ class StaticGraphModel(LightningModule):
         return torch.optim.Adam(params=self.parameters(),
                                 lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
 
-    def get_predictor_loss(self, batch: Batch,
-                           x_and_edge_kwargs: Dict[str, Tensor],
-                           out: Dict[str, Tensor]):
+    def get_predictor_loss_and_results(
+            self,
+            batch: BatchType,
+            out: Dict[str, Tensor],
+            x_and_edge_kwargs: Dict[str, Tensor],
+    ) -> Tuple[Optional[Tensor], Optional[Dict[str, Tensor]]]:
+
+        # ogbn-arxiv: CrossEntropyLoss(logits[mask], y[mask])
         if "log_prob" in out:
             mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)
             log_prob = out["log_prob"]
             y = batch.y.squeeze(1)
-            # CrossEntropyLoss(logits[mask], y[mask])
-            pred_loss = self.predictor_loss(log_prob[mask], y[mask])
+            rets = {"preds": log_prob[mask], "y": y[mask]}
+            loss = self.predictor_loss(rets["preds"], rets["y"])
+
+        # ogbl-collab: BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
         elif "pos_edge_prob" in out:
             pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
-            # BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
-            pred_loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
+            rets = {"pos_preds": pos_edge_prob, "neg_preds": neg_edge_prob}
+            loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
+
+        # Temporal-KG: CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
         elif "obj_log_prob" in out:
             mask = try_getattr(batch, ["val_mask", "test_mask"], default=None, iter_all=False, as_dict=False)
             # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
             sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
             obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
-            # CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
-            if mask is None:
-                obj_pred_loss = self.predictor_loss(obj_log_prob, obj_node)
-                sub_pred_loss = self.predictor_loss(sub_log_prob, sub_node)
-            else:
-                obj_pred_loss = self.predictor_loss(obj_log_prob[mask], obj_node[mask])
-                sub_pred_loss = self.predictor_loss(sub_log_prob[mask], sub_node[mask])
-            pred_loss = obj_pred_loss + sub_pred_loss
+
+            rets = {"obj_preds": obj_log_prob, "obj_node": obj_node,
+                    "sub_preds": sub_log_prob, "sub_node": sub_node}
+            if mask is not None:
+                for r_key, r_tensor in rets.items():
+                    rets[r_key] = r_tensor[mask]
+
+            obj_pred_loss = self.predictor_loss(rets["obj_preds"], rets["obj_node"])
+            sub_pred_loss = self.predictor_loss(rets["sub_preds"], rets["sub_node"])
+            loss = obj_pred_loss + sub_pred_loss
+
         else:
-            pred_loss = None
-        return pred_loss
+            loss, rets = None, None
 
-    def get_projector_loss(self, proj_x: Tensor, batch: Tensor):
-        raise NotImplementedError
+        return loss, rets
 
-    def training_step(self, batch: Batch, batch_idx: int):
+    def get_projector_loss(self, batch: BatchType, out: Dict[str, Tensor]) -> Optional[Tensor]:
+        if "proj_x" in out:
+            raise NotImplementedError
+        else:
+            return None
+
+    def training_step(self, batch: BatchType, batch_idx: int):
         """
         :param batch: Keys are
             batch=[N], edge_index=[2, E], adj_t=[N, N, nnz], neg_edge=[2, B], pos_edge=[2, B],
@@ -208,13 +225,9 @@ class StaticGraphModel(LightningModule):
             **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
             use_predictor=self.h.use_predictor, return_encoded_x=False,
         )
-        pred_loss = self.get_predictor_loss(batch, x_and_edge_kwargs, out)
 
-        # todo: out of projector
-        if "proj_x" in out:  # Use contrastive loss
-            proj_loss = self.get_projector_loss(out["proj_x"], batch.batch)
-        else:
-            proj_loss = None
+        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
+        proj_loss = self.get_projector_loss(batch, out)
 
         """
         train_loss = F.cross_entropy(y_hat, yToSparseTensor)
@@ -225,13 +238,17 @@ class StaticGraphModel(LightningModule):
         """
         raise NotImplementedError
 
-    def validation_step(self, batch: Batch, batch_idx: int):
+    def validation_step(self, batch: BatchType, batch_idx: int):
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
             **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
             encoded_x=self._encoded_x,
             use_predictor=self.h.use_predictor, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
         )
+
+        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
+        proj_loss = self.get_projector_loss(batch, out)
+
         if "encoded_x" in out and batch_idx == 0:
             assert self._encoded_x is None
             self._encoded_x = out["encoded_x"]
@@ -243,14 +260,17 @@ class StaticGraphModel(LightningModule):
         """
         raise NotImplementedError
 
-
-    def test_step(self, batch: Batch, batch_idx: int):
+    def test_step(self, batch: BatchType, batch_idx: int):
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
             **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
             encoded_x=self._encoded_x,
             use_predictor=True, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
         )
+
+        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
+        # No proj_loss for test_step
+
         if "encoded_x" in out and batch_idx == 0:
             assert self._encoded_x is None
             self._encoded_x = out["encoded_x"]

@@ -14,6 +14,9 @@ from torch_sparse import SparseTensor
 from utils import exist_attr, torch_setdiff1d
 
 
+BatchType = Union[Batch, Data]
+
+
 class Loading(Enum):
     coarse = auto()
     fine = auto()
@@ -72,7 +75,7 @@ class CoarseSnapshotData(Data):
                  pernode_attrs: Dict[str, Tensor] = None,
                  num_nodes: int = None,
                  transform_per_snapshot: Callable = None,
-                 transform_per_batch: Callable = None) -> Batch:
+                 transform_per_batch: Callable = None) -> BatchType:
         """
         :param snapshot_sublist: List[SnapshotData],
             e.g., SnapshotData(edge_index=[2, E], t=[1])
