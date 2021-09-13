@@ -178,7 +178,7 @@ class StaticGraphModel(LightningModule):
             sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
             obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
             # CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
-            if mask is not None:
+            if mask is None:
                 obj_pred_loss = self.predictor_loss(obj_log_prob, obj_node)
                 sub_pred_loss = self.predictor_loss(sub_log_prob, sub_node)
             else:

@@ -35,14 +35,14 @@ def try_getattr(o, name_list: List[str],
             pass
     if len(ret_list) > 0:
         if as_dict:
-            return {n: r for n, r in zip(name_list, ret_list)}
+            return dict(zip(name_list, ret_list))
         else:
             return ret_list
     elif default != __MAGIC__:
         if as_dict:
             return {"default": default}
         else:
-            return [default]
+            return default
     else:
         raise AttributeError
 
