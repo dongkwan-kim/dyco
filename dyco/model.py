@@ -192,6 +192,9 @@ class StaticGraphModel(LightningModule):
             pred_loss = None
         return pred_loss
 
+    def get_projector_loss(self, proj_x: Tensor, batch: Tensor):
+        raise NotImplementedError
+
     def training_step(self, batch: Batch, batch_idx: int):
         """
         :param batch: Keys are
@@ -209,7 +212,9 @@ class StaticGraphModel(LightningModule):
 
         # todo: out of projector
         if "proj_x" in out:  # Use contrastive loss
-            raise NotImplementedError
+            proj_loss = self.get_projector_loss(out["proj_x"], batch.batch)
+        else:
+            proj_loss = None
 
         """
         train_loss = F.cross_entropy(y_hat, yToSparseTensor)
