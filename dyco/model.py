@@ -1,9 +1,10 @@
 from argparse import Namespace
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 
 import torch
 import torch.nn as nn
 from pytorch_lightning import (LightningModule)
+from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from torch import Tensor
 from torch_geometric.data import Batch
 
@@ -117,6 +118,8 @@ class StaticGraphModel(LightningModule):
             else:
                 self.predictor_loss = nn.CrossEntropyLoss()
 
+        self._encoded_x: Optional[Tensor] = None
+
     def forward(self,
                 x, edge_index, rel=None,
                 encoded_x=None,
@@ -200,8 +203,7 @@ class StaticGraphModel(LightningModule):
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
             **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
-            use_predictor=self.h.use_predictor_at_training,
-            return_encoded_x=(self.h.dataloader_type == "SnapshotGraphLoader"),
+            use_predictor=self.h.use_predictor, return_encoded_x=False,
         )
         pred_loss = self.get_predictor_loss(batch, x_and_edge_kwargs, out)
 
@@ -209,14 +211,7 @@ class StaticGraphModel(LightningModule):
         if "proj_x" in out:  # Use contrastive loss
             raise NotImplementedError
 
-        # todo: cache encoded_x
-        if "encoded_x" in out:
-            raise NotImplementedError
-
-        # Loss(out["encoded_x"], batch)
         """
-        x, y, adjs_t = batch
-        y_hat = self(x, adjs_t)
         train_loss = F.cross_entropy(y_hat, yToSparseTensor)
         self.train_acc(y_hat.softmax(dim=-1), y)
         self.log('train_acc', self.train_acc, prog_bar=True, on_step=False,
@@ -226,23 +221,47 @@ class StaticGraphModel(LightningModule):
         raise NotImplementedError
 
     def validation_step(self, batch: Batch, batch_idx: int):
+        x_and_edge_kwargs = x_and_edge(batch)
+        out = self.forward(
+            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
+            encoded_x=self._encoded_x,
+            use_predictor=self.h.use_predictor, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+        )
+        if "encoded_x" in out and batch_idx == 0:
+            assert self._encoded_x is None
+            self._encoded_x = out["encoded_x"]
+
         """
-        x, y, adjs_t = batch
-        y_hat = self(x, adjs_t)
         self.val_acc(y_hat.softmax(dim=-1), y)
         self.log('val_acc', self.val_acc, prog_bar=True, on_step=False,
                  on_epoch=True)
         """
         raise NotImplementedError
 
+
     def test_step(self, batch: Batch, batch_idx: int):
+        x_and_edge_kwargs = x_and_edge(batch)
+        out = self.forward(
+            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
+            encoded_x=self._encoded_x,
+            use_predictor=True, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+        )
+        if "encoded_x" in out and batch_idx == 0:
+            assert self._encoded_x is None
+            self._encoded_x = out["encoded_x"]
         """
-        x, y, adjs_t = batch
-        y_hat = self(x, adjs_t)
         self.test_acc(y_hat.softmax(dim=-1), y)
         self.log('test_acc', self.test_acc, prog_bar=True, on_step=False,
                  on_epoch=True)
         """
+        raise NotImplementedError
+
+    def validation_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+        self._encoded_x = None  # cache flush
+        raise NotImplementedError
+
+    def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+        self._encoded_x = None  # cache flush
         raise NotImplementedError
 
 
@@ -291,7 +310,7 @@ if __name__ == '__main__':
             layer_kwargs={"heads": 8},
             use_projection=True,
             predictor_type="Edge/HadamardProduct",
-            use_predictor_at_training=True,
+            use_predictor=True,
             learning_rate=1e-3,
             weight_decay=1e-5,
         ),
