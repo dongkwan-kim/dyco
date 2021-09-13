@@ -10,7 +10,7 @@ from torch.utils.data.dataloader import default_collate
 from torch_geometric.data import Data, Batch, TemporalData
 
 from termcolor import cprint
-from torch_geometric.data.dataloader import Collater
+from torch_geometric.loader.dataloader import Collater
 from torch_geometric.utils import add_self_loops
 from tqdm import tqdm
 
@@ -28,11 +28,13 @@ def _add_trivial_negatives_to_snapshot(data: CoarseSnapshotData) -> CoarseSnapsh
     return data
 
 
-def _rename_to_pos_and_neg_edge(data: Batch) -> Batch:
+def _rename_to_pos_and_neg_edge(data: Union[Batch, Data]) -> Batch:
     assert hasattr(data, "train_edge_index")
     assert hasattr(data, "train_neg_edge_index")
-    rename_attr(data, "train_edge_index", "pos_edge")
-    rename_attr(data, "train_neg_edge_index", "neg_edge")
+    data.pos_edge = data.train_edge_index
+    data.neg_edge = data.train_neg_edge_index
+    data.__delattr__("train_edge_index")
+    data.__delattr__("train_neg_edge_index")
     return data
 
 
@@ -310,8 +312,11 @@ if __name__ == "__main__":
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
     # BitcoinOTC
+    _dataset_kwargs = {}
+    if NAME.startswith("Singleton"):
+        _dataset_kwargs["splits"] = ["train", "train_val", "train_val_test"]
 
-    _dataset = get_dynamic_graph_dataset(PATH, NAME)
+    _dataset = get_dynamic_graph_dataset(PATH, NAME, **_dataset_kwargs)
     if isinstance(_dataset, tuple):
         _dataset = _dataset[0]
 
@@ -329,7 +334,13 @@ if __name__ == "__main__":
         for i, _batch in enumerate(tqdm(_loader)):
             # e.g., Batch(batch=[26709], edge_index=[2, 48866], ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
             if i < 2:
-                print("\n t =", _batch.t, end=" / ")
+                print(f"\n ei {_batch.edge_index.min().item()} -- {_batch.edge_index.max().item()}", end=" / ")
+                try:
+                    print(f"pe {_batch.pos_edge.min().item()} -- {_batch.pos_edge.max().item()}",
+                          end=" / ")
+                except AttributeError:
+                    pass
+                print("t =", _batch.t, end=" / ")
                 cprint(_batch, "yellow")
             else:
                 exit()

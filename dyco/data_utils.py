@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 from torch_geometric.data import Batch, Data, TemporalData
 from torch_geometric.transforms import ToSparseTensor, ToUndirected, Compose
+from torch_geometric.typing import OptTensor
 from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_sparse import SparseTensor
@@ -21,15 +22,17 @@ class Loading(Enum):
 class CoarseSnapshotData(Data):
     """CoarseSnapshotData has multiple nodes or edges per given time stamp"""
 
-    def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos=None, normal=None, face=None,
+    def __init__(self, x: OptTensor = None, edge_index: OptTensor = None,
+                 edge_attr: OptTensor = None, y: OptTensor = None, pos: OptTensor = None,
                  increase_num_nodes_for_index=None, **kwargs):
-        self.increase_num_nodes_for_index = increase_num_nodes_for_index
-        super().__init__(x, edge_index, edge_attr, y, pos, normal, face, **kwargs)
+        super().__init__(x, edge_index, edge_attr, y, pos,
+                         increase_num_nodes_for_index=increase_num_nodes_for_index,
+                         **kwargs)
 
-    def __inc__(self, key, value):
+    def __inc__(self, key, value, *args, **kwargs):
         if exist_attr(self, "increase_num_nodes_for_index") and self.increase_num_nodes_for_index:
             # original code: self.num_nodes if bool(re.search("(index|face)", key)) else 0
-            return super(CoarseSnapshotData, self).__inc__(key, value)
+            return super(CoarseSnapshotData, self).__inc__(key, value, *args, **kwargs)
         else:
             return 0
 
