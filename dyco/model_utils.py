@@ -8,6 +8,7 @@ import numpy as np
 import math
 
 from termcolor import cprint
+from torch import Tensor
 from torch_geometric.nn.glob import global_mean_pool, global_max_pool, global_add_pool
 from torch_geometric.nn import GlobalAttention, GCNConv, SAGEConv, GATConv
 from torch_scatter import scatter_add
@@ -322,30 +323,38 @@ class EdgePredictor(nn.Module):
 
 class Readout(nn.Module):
 
-    def __init__(self, readout_types, num_in_layers, hidden_channels,
-                 out_channels=None, use_out_mlp=False,
+    def __init__(self, readout_types,
+                 use_in_mlp, use_out_linear=False,
+                 num_in_layers=None, hidden_channels=None, out_channels=None,
                  activation="relu", use_bn=False, dropout_channels=0.0, **kwargs):
         super().__init__()
 
         self.readout_types = readout_types  # e.g., mean, max, sum, mean-max, ...,
-        self.hidden_channels = hidden_channels
+        self.use_in_mlp = use_in_mlp
+        self.use_out_linear = use_out_linear
+
         self.num_in_layers = num_in_layers
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
         self.activation = activation
         self.use_bn = use_bn
         self.dropout_channels = dropout_channels
 
-        self.out_channels = out_channels
-        self.use_out_mlp = use_out_mlp
+        self.in_mlp, self.out_linear = None, None
 
-        self.in_mlp = self.build_in_mlp(**kwargs)  # [N, F] -> [N, F]
-        if self.use_out_mlp:
+        if self.use_in_mlp:
+            assert num_in_layers is not None
+            assert hidden_channels is not None
+            self.in_mlp = self.build_in_mlp(**kwargs)  # [N, F] -> [N, F]
+
+        if self.use_out_linear:
+            assert hidden_channels is not None
+            assert out_channels is not None
             num_readout_types = len(self.readout_types.split("-"))
-            self.out_mlp = nn.Linear(
+            self.out_linear = nn.Linear(
                 num_readout_types * hidden_channels,
                 out_channels,
             )
-        else:
-            self.out_mlp = None
 
     def build_in_mlp(self, **kwargs):
         kw = dict(
@@ -361,10 +370,12 @@ class Readout(nn.Module):
         kw.update(**kwargs)
         return MLP(**kw)
 
-    def forward(self, x, batch=None, *args, **kwargs):
+    def forward(self, x, batch=None, *args, **kwargs) -> Tuple[Tensor, Tensor]:
 
         B = int(batch.max().item() + 1) if batch is not None else 1
-        x = self.in_mlp(x)
+
+        if self.use_in_mlp:
+            x = self.in_mlp(x)
 
         o_list = []
         if "mean" in self.readout_types:
@@ -381,16 +392,21 @@ class Readout(nn.Module):
                           global_add_pool(x, batch, B))
 
         z = torch.cat(o_list, dim=-1)  # [F * #type] or  [B, F * #type]
-        out_logits = self.out_mlp(z).view(B, -1) if self.use_out_mlp else None
+
+        if self.use_out_linear:
+            out_logits = self.out_linear(z).view(B, -1)
+        else:
+            out_logits = None
+
         return z.view(B, -1), out_logits
 
     def __repr__(self):
-        return "{}({}, in_mlp={}, out_mlp={})".format(
-            self.__class__.__name__, self.readout_types,
-            self.in_mlp.layer_repr(),
-            None if not self.use_out_mlp else "{}->{}".format(
-                self.out_mlp.in_features, self.out_mlp.out_features),
-        )
+        attr_reprs = [self.readout_types]
+        if self.use_in_mlp:
+            attr_reprs.append(f"in_mlp={self.in_mlp.layer_repr()}")
+        if self.use_out_linear:
+            attr_reprs.append(f"out_linear={self.out_linear.in_features}->{self.out_linear.out_features}")
+        return "{}({})".format(self.__class__.__name__, ", ".join(attr_reprs))
 
 
 class VersatileEmbedding(nn.Module):
@@ -482,7 +498,7 @@ class GlobalAttentionHalf(GlobalAttention):
 
 if __name__ == '__main__':
 
-    MODE = "GraphEncoder"
+    MODE = "Readout"
 
     from pytorch_lightning import seed_everything
     seed_everything(42)
@@ -497,7 +513,7 @@ if __name__ == '__main__':
         print(_bilinear(_x1, _x2).size())  # [5, 23, 7]
 
     elif MODE == "Readout":
-        _ro = Readout(readout_types="sum", hidden_channels=64, num_in_layers=2)
+        _ro = Readout(readout_types="sum", use_in_mlp=True, hidden_channels=64, num_in_layers=2)
         _x = torch.ones(10 * 64).view(10, 64)
         _batch = torch.zeros(10).long()
         _batch[:4] = 1
@@ -506,16 +522,16 @@ if __name__ == '__main__':
         print(_ro)
         print("_z", _z.size())  # [2, 64]
 
-        _ro = Readout(readout_types="sum", hidden_channels=64, num_in_layers=2,
-                      out_channels=3, use_out_mlp=True)
+        _ro = Readout(readout_types="sum", use_in_mlp=True, use_out_linear=True,
+                      num_in_layers=2, hidden_channels=64, out_channels=3)
         cprint("-- sum w/ batch", "red")
         _z, _logits = _ro(_x, _batch)
         print(_ro)
         print("_z", _z.size())  # [2, 64]
         print("_logits", _logits.size())  # [2, 3]
 
-        _ro = Readout(readout_types="mean-sum", hidden_channels=64, num_in_layers=2,
-                      out_channels=3, use_out_mlp=True)
+        _ro = Readout(readout_types="mean-sum", use_in_mlp=True, use_out_linear=True,
+                      num_in_layers=2, hidden_channels=64, out_channels=3)
         cprint("-- mean-sum w/ batch", "red")
         _z, _logits = _ro(_x, _batch)
         print(_ro)
