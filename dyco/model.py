@@ -10,8 +10,8 @@ from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
 from data_utils import BatchType
-from model_loss import BCEWOLabelsLoss
-from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor
+from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
+from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
 from utils import try_getattr
 
 
@@ -75,17 +75,24 @@ class StaticGraphModel(LightningModule):
         self.projector, self.predictor = None, None
         self.projector_loss, self.predictor_loss = None, None
 
-        if self.h.use_projection:
+        if self.h.use_projector:
             self.projector = MLP(
                 num_layers=2,
                 in_channels=self.h.hidden_channels,
                 hidden_channels=self.h.hidden_channels,
-                out_channels=self.h.hidden_channels,
+                out_channels=self.h.projected_channels,
                 activation=self.h.activation,
                 use_bn=self.h.use_bn,
                 dropout=self.h.dropout_channels,
                 activate_last=False,
             )
+            _use_out_linear = "-" in self.h.projector_readout_types  # multi-readout
+            self.projector_loss = InfoNCEWithReadoutLoss(
+                temperature=self.h.projector_infonce_temperature,
+                readout=Readout(readout_types=self.h.projector_readout_types,
+                                use_in_mlp=False, use_out_linear=_use_out_linear,
+                                hidden_channels=self.h.projected_channels,
+                                out_channels=self.h.projected_channels))
 
         # e.g., Node, Edge/DotProduct, Edge/Concat, Edge/HadamardProduct
         if self.h.predictor_type.lower().startswith("node"):
@@ -208,7 +215,7 @@ class StaticGraphModel(LightningModule):
 
     def get_projector_loss(self, batch: BatchType, out: Dict[str, Tensor]) -> Optional[Tensor]:
         if "proj_x" in out:
-            raise NotImplementedError
+            return self.projector_loss(out["proj_x"], batch)
         else:
             return None
 
@@ -324,6 +331,7 @@ if __name__ == '__main__':
             num_node_emb_channels=128,
             edge_embedding_type="Embedding",
             num_edge_emb_channels=128,
+
             encoder_layer_name="GATConv",
             num_layers=3,
             hidden_channels=256,
@@ -333,9 +341,15 @@ if __name__ == '__main__':
             use_skip=True,
             dropout_channels=0.5,
             layer_kwargs={"heads": 8},
-            use_projection=True,
-            predictor_type="Edge/HadamardProduct",
+
+            use_projector=True,
+            projected_channels=128,
+            projector_infonce_temperature=0.5,
+            projector_readout_types="mean-max",
+
             use_predictor=True,
+            predictor_type="Edge/HadamardProduct",
+
             learning_rate=1e-3,
             weight_decay=1e-5,
         ),
