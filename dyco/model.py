@@ -24,7 +24,7 @@ def x_and_edge(batch) -> Dict[str, Tensor]:
         # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
         pred_edges = {"obj": batch.edge_index[0], "sub": batch.edge_index[1]}
     else:
-        pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], None,
+        pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], {},
                                  iter_all=True, as_dict=True)
     return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
 
