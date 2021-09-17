@@ -18,7 +18,6 @@ from torch_scatter import scatter
 import numpy as np
 from tqdm import tqdm
 
-
 __MAGIC__ = "This is magic, please trust the author."
 
 
@@ -57,6 +56,22 @@ def merge_dict_by_keys(first_dict: dict, second_dict: dict, keys: list):
         if k in second_dict:
             first_dict[k] = second_dict[k]
     return first_dict
+
+
+def merge_dict(dict_list: List[Dict]) -> Dict:
+    # https://stackoverflow.com/a/16048368
+    return reduce(lambda a, b: dict(a, **b), dict_list)
+
+
+def merge_dict_by_reducing_values(dict_list: List[Dict], reduce_values: Callable = sum):
+    def _reduce(the_dict, a_dict):
+        for k, v in a_dict.items():
+            if k in the_dict:
+                v = reduce_values([v, the_dict[k]])
+            the_dict[k] = v
+        return the_dict
+
+    return reduce(_reduce, dict_list, {})
 
 
 def startswith_any(string: str, prefix_list, *args, **kwargs) -> bool:
@@ -251,16 +266,24 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "add_self_loops_v2"
+    METHOD = "merge_dict_by_reducing_values"
 
     from pytorch_lightning import seed_everything
+
     seed_everything(42)
 
     if METHOD == "to_index_chunks_by_values":
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
         print(to_index_chunks_by_values(_tensor_1d))
 
-    if METHOD == "add_self_loops_v2":
+    if METHOD == "merge_dict_by_reducing_values":
+        pprint(merge_dict_by_reducing_values(
+            [{"a": 1, "c": 3},
+             {"a": 10, "b": 20, "c": 30},
+             {"a": 100, "b": 200}],
+            reduce_values=sum))
+
+    elif METHOD == "add_self_loops_v2":
         _edge_index = torch.Tensor([[0, 0, 1],
                                     [1, 2, 2]]).long()
         _edge_attr = torch.eye(3).float()
