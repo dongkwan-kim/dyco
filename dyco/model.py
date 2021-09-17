@@ -182,13 +182,13 @@ class StaticGraphModel(LightningModule):
             mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)
             log_prob = out["log_prob"]
             y = batch.y.squeeze(1)
-            rets = {"preds": log_prob[mask], "y": y[mask]}
-            loss = self.predictor_loss(rets["preds"], rets["y"])
+            rets = {"pred": log_prob[mask], "y": y[mask]}
+            loss = self.predictor_loss(rets["pred"], rets["y"])
 
         # ogbl-collab: BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
         elif "pos_edge_prob" in out:
             pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
-            rets = {"pos_preds": pos_edge_prob, "neg_preds": neg_edge_prob}
+            rets = {"pos_pred": pos_edge_prob, "neg_pred": neg_edge_prob}
             loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
 
         # Temporal-KG: CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
@@ -198,14 +198,14 @@ class StaticGraphModel(LightningModule):
             sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
             obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
 
-            rets = {"obj_preds": obj_log_prob, "obj_node": obj_node,
-                    "sub_preds": sub_log_prob, "sub_node": sub_node}
+            rets = {"obj_pred": obj_log_prob, "obj_node": obj_node,
+                    "sub_pred": sub_log_prob, "sub_node": sub_node}
             if mask is not None:
                 for r_key, r_tensor in rets.items():
                     rets[r_key] = r_tensor[mask]
 
-            obj_pred_loss = self.predictor_loss(rets["obj_preds"], rets["obj_node"])
-            sub_pred_loss = self.predictor_loss(rets["sub_preds"], rets["sub_node"])
+            obj_pred_loss = self.predictor_loss(rets["obj_pred"], rets["obj_node"])
+            sub_pred_loss = self.predictor_loss(rets["sub_pred"], rets["sub_node"])
             loss = obj_pred_loss + sub_pred_loss
 
         else:
