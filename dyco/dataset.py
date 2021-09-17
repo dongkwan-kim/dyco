@@ -8,12 +8,9 @@ from torch_geometric.datasets import JODIEDataset
 from torch_geometric.datasets import BitcoinOTC
 from torch_geometric.datasets import ICEWS18, GDELT
 from torch_geometric.data import TemporalData, Data, InMemoryDataset
-from torch_geometric.datasets.icews import EventDataset
 
 from ogb.nodeproppred import PygNodePropPredDataset
 from ogb.linkproppred import PygLinkPropPredDataset
-from ogb.nodeproppred import Evaluator as NodeEvaluator
-from ogb.linkproppred import Evaluator as LinkEvaluator
 
 from data_utils import from_events_to_singleton_data, ToTemporalData
 
