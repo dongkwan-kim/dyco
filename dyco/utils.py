@@ -27,16 +27,18 @@ def _try_do(do: Callable,
             as_dict=True) -> Union[Dict[Any, Any], List, Any]:
     e = None
     ret_list = list()
+    real_name_list = []
     for name in name_list:
         try:
             ret_list.append(do(obj, name))
+            real_name_list.append(name)
             if not iter_all:
                 break
         except Exception as e:
             pass
     if len(ret_list) > 0:
         if as_dict:
-            return dict(zip(name_list, ret_list))
+            return dict(zip(real_name_list, ret_list))
         else:
             return ret_list
     elif default != __MAGIC__:
