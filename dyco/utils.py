@@ -21,16 +21,18 @@ from tqdm import tqdm
 __MAGIC__ = "This is magic, please trust the author."
 
 
-def try_getattr(o, name_list: List[str],
-                default=__MAGIC__, iter_all=True,
-                as_dict=True) -> Union[Dict[str, Any], List, Any]:
+def _try_do(do: Callable,
+            obj, name_list: List[Any],
+            default=__MAGIC__, iter_all=True,
+            as_dict=True) -> Union[Dict[Any, Any], List, Any]:
+    e = None
     ret_list = list()
     for name in name_list:
         try:
-            ret_list.append(getattr(o, name))
+            ret_list.append(do(obj, name))
             if not iter_all:
                 break
-        except AttributeError:
+        except Exception as e:
             pass
     if len(ret_list) > 0:
         if as_dict:
@@ -43,7 +45,22 @@ def try_getattr(o, name_list: List[str],
         else:
             return default
     else:
-        raise AttributeError
+        raise e
+
+
+def try_getattr(obj, name_list: List[str],
+                default=__MAGIC__, iter_all=True,
+                as_dict=True) -> Union[Dict[str, Any], List, Any]:
+    return _try_do(do=getattr, obj=obj, name_list=name_list, default=default,
+                   iter_all=iter_all, as_dict=as_dict)
+
+
+def try_get_from_dict(o, name_list: List[Any],
+                      default=__MAGIC__, iter_all=True,
+                      as_dict=True) -> Union[Dict[Any, Any], List, Any]:
+    return _try_do(do=(lambda _o, _n: _o.get(_n)),
+                   obj=o, name_list=name_list, default=default,
+                   iter_all=iter_all, as_dict=as_dict)
 
 
 def iter_transform(iterator, transform: Callable = None):
@@ -266,7 +283,7 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "merge_dict_by_reducing_values"
+    METHOD = "try_get_from_dict"
 
     from pytorch_lightning import seed_everything
 
@@ -276,7 +293,11 @@ if __name__ == '__main__':
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
         print(to_index_chunks_by_values(_tensor_1d))
 
-    if METHOD == "merge_dict_by_reducing_values":
+    elif METHOD == "try_get_from_dict":
+        pprint(try_get_from_dict({1: 10, 2: 20, 3: 30},
+                                 name_list=[3, 2, 123]))
+
+    elif METHOD == "merge_dict_by_reducing_values":
         pprint(merge_dict_by_reducing_values(
             [{"a": 1, "c": 3},
              {"a": 10, "b": 20, "c": 30},
