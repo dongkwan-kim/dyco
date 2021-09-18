@@ -6,6 +6,7 @@ from functools import reduce
 from ogb.nodeproppred import Evaluator as OGBNodeEvaluator
 from ogb.linkproppred import Evaluator as OGBLinkEvaluator
 from sklearn.metrics import average_precision_score, roc_auc_score
+from termcolor import cprint
 from torch import Tensor
 
 from utils import merge_dict, try_get_from_dict
@@ -115,6 +116,9 @@ class VersatileGraphEvaluator:
             eval_outs.append(evaluator.eval(input_dict))
         return self.transform_to_reduce(eval_outs)
 
+    def __repr__(self):
+        return "{}(name={})".format(self.__class__.__name__, self.name)
+
     @staticmethod
     def set_hits_k(k_list: List[int]) -> VGETransformToIterate:
         """
@@ -144,6 +148,7 @@ if __name__ == '__main__':
     y_pred_pos = torch.tensor(np.random.randn(1000, ))
     y_pred_neg = torch.tensor(np.random.randn(1000))
     result = _evaluator.eval({'y_pred_pos': y_pred_pos, 'y_pred_neg': y_pred_neg})
+    cprint(_evaluator, "yellow")
     pprint(result)
 
     _evaluator = VersatileGraphEvaluator(
@@ -158,4 +163,5 @@ if __name__ == '__main__':
         "obj_pred": _obj_pred, "obj_node": _obj_node,
         "sub_pred": _sub_pred, "sub_node": _sub_node,
     })
+    cprint(_evaluator, "yellow")
     pprint(result)
