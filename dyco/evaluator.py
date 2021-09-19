@@ -18,9 +18,17 @@ VGETransformToReduce = Callable[[List[Dict]], Dict]
 
 class VersatileLinkEvaluator(ABC):
 
-    def __init__(self, name, metrics=None, k_list=None):
+    def __init__(self, name, metrics=None, k_for_hits=None):
         self.metrics = metrics or []
-        self.k_list = k_list
+        self.k_for_hits = k_for_hits
+
+    def metrics_repr(self):
+        try:
+            i = self.metrics.index("hits")
+            hits_at_k_list = [f"hits@{k}" for k in self.k_for_hits]
+            return self.metrics[:i] + hits_at_k_list + self.metrics[i+1:]
+        except ValueError:
+            return self.metrics
 
     @abstractmethod
     def eval(self, input_dict: Dict[str, Tensor]) -> Dict[str, float]:
@@ -41,9 +49,10 @@ class VersatileLinkEvaluator(ABC):
             metric_values.append(mrr)
 
         if "hits" in self.metrics:
-            assert self.k_list is not None
+            assert self.k_for_hits is not None
             # e.g., hits3 = mask[:, :3].sum().item() / y.size(0)
-            hit_list_at_k = [(mask[:, :k].sum().item() / y.size(0)) for k in self.k_list]
+            hit_list_at_k = [(mask[:, :k].sum().item() / y.size(0))
+                             for k in self.k_for_hits]
             metric_values += hit_list_at_k
 
         return torch.tensor(metric_values)
@@ -63,10 +72,9 @@ class VersatileLinkEvaluator(ABC):
 
 class TKGEvaluator(VersatileLinkEvaluator):
 
-    def __init__(self, name, k_list=None):
-        metrics = ["mrr", "hits"]
-        k_list = k_list or [1, 3, 10]
-        super().__init__(name, metrics=metrics, k_list=k_list)
+    def __init__(self, name, metrics, k_for_hits):
+        metrics = metrics or ["mrr", "hits"]
+        super().__init__(name, metrics=metrics, k_for_hits=k_for_hits)
 
     def _parse_and_check_input(self, input_dict: Dict[str, Tensor]):
         assert "obj_pred" in input_dict
@@ -83,9 +91,8 @@ class TKGEvaluator(VersatileLinkEvaluator):
         obj_metric_values = self._eval_mrr_and_hits(obj_pred, obj_node) * obj_node_size
         sub_metric_values = self._eval_mrr_and_hits(sub_pred, sub_node) * sub_node_size
 
-        names = ["mrr"] + [f"hits@{k}" for k in self.k_list]
         values = (obj_metric_values + sub_metric_values) / (obj_node_size + sub_node_size)
-        return dict(zip(names, values.tolist()))
+        return dict(zip(self.metrics_repr(), values.tolist()))
 
 
 class VersatileGraphEvaluator:
@@ -93,22 +100,28 @@ class VersatileGraphEvaluator:
     def __init__(self, name: str,
                  transform_to_iterate: VGETransformToIterate = None,
                  transform_to_reduce: VGETransformToReduce = None,
+                 metrics: List[str] = None,
+                 k_for_hits: List[int] = None,
                  *args, **kwargs):
         self.name = name
-        self.transform_to_generate = transform_to_iterate or (lambda vge: [vge])
-        self.transform_to_reduce = transform_to_reduce or merge_dict
+
         if name.startswith("ogbn"):
             self.evaluator = OGBNodeEvaluator(name)
         elif name.startswith("ogbl"):
             self.evaluator = OGBLinkEvaluator(name)
+            if k_for_hits is not None:
+                transform_to_iterate = self.set_hits_k(k_for_hits)
         elif name.startswith("Singleton"):
-            self.evaluator = TKGEvaluator(name, *args, **kwargs)
+            self.evaluator = TKGEvaluator(name, metrics=metrics, k_for_hits=k_for_hits)
         elif name.startswith("JODIEDataset"):
             raise NotImplementedError
         elif name == "BitcoinOTC":
             raise NotImplementedError
         else:
             raise ValueError("Wrong name: {}".format(name))
+
+        self.transform_to_generate = transform_to_iterate or (lambda vge: [vge])
+        self.transform_to_reduce = transform_to_reduce or merge_dict
 
     def eval(self, input_dict: Dict[str, Tensor]):
         eval_outs = []
@@ -120,14 +133,14 @@ class VersatileGraphEvaluator:
         return "{}(name={})".format(self.__class__.__name__, self.name)
 
     @staticmethod
-    def set_hits_k(k_list: List[int]) -> VGETransformToIterate:
+    def set_hits_k(k_for_hits: List[int]) -> VGETransformToIterate:
         """
-        :param k_list: List of ks
+        :param k_for_hits: List of ks
         :return:
         """
 
         def _set_hits_k(evaluator):
-            for k in k_list:
+            for k in k_for_hits:
                 evaluator.K = k
                 yield evaluator
 
@@ -143,7 +156,8 @@ if __name__ == '__main__':
 
     _evaluator = VersatileGraphEvaluator(
         name='ogbl-collab',
-        transform_to_iterate=VersatileGraphEvaluator.set_hits_k([10, 50, 100]),
+        metrics=["hits"],
+        k_for_hits=[10, 50, 100],
     )
     y_pred_pos = torch.tensor(np.random.randn(1000, ))
     y_pred_neg = torch.tensor(np.random.randn(1000))
@@ -153,6 +167,8 @@ if __name__ == '__main__':
 
     _evaluator = VersatileGraphEvaluator(
         name='SingletonGDELT',
+        metrics=["mrr", "hits"],
+        k_for_hits=[1, 3, 10],
     )
     N, C = 100, 7
     _obj_pred = torch.randn((N, C))
