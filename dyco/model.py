@@ -13,7 +13,7 @@ from data_utils import BatchType
 from evaluator import VersatileGraphEvaluator
 from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
-from utils import try_getattr
+from utils import try_getattr, ld_to_dl, iter_ft
 
 
 def x_and_edge(batch) -> Dict[str, Tensor]:
@@ -137,7 +137,9 @@ class StaticGraphModel(LightningModule):
     def forward(self,
                 x, edge_index, rel=None,
                 encoded_x=None,
-                use_predictor=True, return_encoded_x=False,
+                use_predictor=True,
+                use_projector=True,
+                return_encoded_x=False,
                 pred_edges: Dict[str, Tensor] = None
                 ) -> Dict[str, Tensor]:
 
@@ -151,14 +153,13 @@ class StaticGraphModel(LightningModule):
         out = dict()
         if return_encoded_x:
             out["encoded_x"] = x
-        if self.projector is not None:  # MLP
-            proj_x = self.projector(x)
-            out["proj_x"] = proj_x
+        if use_projector:
+            assert self.projector is not None  # MLP
+            out["proj_x"] = self.projector(x)
         if use_predictor:  # MLP, EdgePredictor
             assert self.predictor is not None
             if pred_edges is None:
-                log_prob = self.predictor(x, edge_index)
-                out["log_prob"] = log_prob
+                out["log_prob"] = self.predictor(x, edge_index)
             else:
                 # {pos_edge, neg_edge} or {obj, sub}
                 for pred_name, _pred_edge in pred_edges.items():
@@ -176,7 +177,7 @@ class StaticGraphModel(LightningModule):
         return torch.optim.Adam(params=self.parameters(),
                                 lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
 
-    def get_predictor_loss_and_results(
+    def get_pred_loss_and_results(
             self,
             batch: BatchType,
             out: Dict[str, Tensor],
@@ -219,94 +220,98 @@ class StaticGraphModel(LightningModule):
 
         return loss, rets
 
-    def get_projector_loss(self, batch: BatchType, out: Dict[str, Tensor]) -> Optional[Tensor]:
+    def get_proj_loss(self, batch: BatchType, out: Dict[str, Tensor]) -> Optional[Tensor]:
         if "proj_x" in out:
             return self.projector_loss(out["proj_x"], batch)
         else:
             return None
 
-    def step(self, prefix: str, batch: BatchType, batch_idx: int):
-        raise NotImplementedError
-
-    def training_step(self, batch: BatchType, batch_idx: int):
+    def step(self, batch: BatchType, batch_idx: int,
+             use_predictor: bool, use_projector: bool, cache_encoded_x: bool):
         """
-        :param batch: Keys are
-            batch=[N], edge_index=[2, E], adj_t=[N, N, nnz], neg_edge=[2, B], pos_edge=[2, B],
-            rel=[E, 1], train_mask=[N], x=[N, F], y=[N, 1] and ptr, t,
+        :param batch: Keys are one of
+            batch=[N], edge_index=[2, E], adj_t=[N, N, nnz],
+            neg_edge=[2, B], pos_edge=[2, B], rel=[E, 1], train_mask=[N],
+            x=[N, F], y=[N, 1] and ptr, t.
         :param batch_idx:
+        :param use_predictor:
+        :param use_projector:
+        :param cache_encoded_x:
         :return:
         """
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
             **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
-            use_predictor=self.h.use_predictor, return_encoded_x=False,
+            use_predictor=use_predictor,
+            use_projector=use_projector,
+            return_encoded_x=cache_encoded_x,
         )
+        pred_loss, pred_rets = self.get_pred_loss_and_results(batch, out, x_and_edge_kwargs)
+        proj_loss = self.get_proj_loss(batch, out)
 
-        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
-        proj_loss = self.get_projector_loss(batch, out)
+        if cache_encoded_x and batch_idx == 0:
+            assert self._encoded_x is None
+            assert "encoded_x" in out
+            self._encoded_x = out["encoded_x"]
 
-        total_loss = 0
+        loss_parts, total_loss = {}, 0
         if pred_loss is not None:
             total_loss += self.h.lambda_pred * pred_loss
+            loss_parts["pred_loss"] = pred_loss
         if proj_loss is not None:
             total_loss += self.h.lambda_proj * proj_loss
-        return {"loss": total_loss, **pred_rets}
+            loss_parts["proj_loss"] = proj_loss
+        return {"loss": total_loss, **loss_parts, **pred_rets}
+
+    def training_step(self, batch: BatchType, batch_idx: int):
+        return self.step(
+            batch=batch, batch_idx=batch_idx,
+            use_predictor=self.h.use_predictor,
+            use_projector=self.h.use_projector,
+            cache_encoded_x=False,
+        )
 
     def validation_step(self, batch: BatchType, batch_idx: int):
-        x_and_edge_kwargs = x_and_edge(batch)
-        out = self.forward(
-            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
-            encoded_x=self._encoded_x,
-            use_predictor=self.h.use_predictor, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+        return self.step(
+            batch=batch, batch_idx=batch_idx,
+            use_predictor=self.h.use_predictor,
+            use_projector=self.h.use_projector,
+            cache_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
         )
-
-        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
-        proj_loss = self.get_projector_loss(batch, out)
-
-        if "encoded_x" in out and batch_idx == 0:
-            assert self._encoded_x is None
-            self._encoded_x = out["encoded_x"]
-
-        total_loss = 0
-        if pred_loss is not None:
-            total_loss += self.h.lambda_pred * pred_loss
-        if proj_loss is not None:
-            total_loss += self.h.lambda_proj * proj_loss
-        return {"loss": total_loss, **pred_rets}
 
     def test_step(self, batch: BatchType, batch_idx: int):
-        x_and_edge_kwargs = x_and_edge(batch)
-        out = self.forward(
-            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
-            encoded_x=self._encoded_x,
-            use_predictor=True, return_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+        return self.step(
+            batch=batch, batch_idx=batch_idx,
+            use_predictor=True,
+            use_projector=False,
+            cache_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
         )
 
-        pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
-        # No proj_loss for test_step
-        proj_loss = None
+    def epoch_end(self, prefix, outputs):
+        self._encoded_x = None  # cache flush
 
-        if "encoded_x" in out and batch_idx == 0:
-            assert self._encoded_x is None
-            self._encoded_x = out["encoded_x"]
+        output_as_dict = ld_to_dl(outputs)
 
-        total_loss = 0
-        if pred_loss is not None:
-            total_loss += self.h.lambda_pred * pred_loss
-        if proj_loss is not None:
-            total_loss += self.h.lambda_proj * proj_loss
-        return {"loss": total_loss, **pred_rets}
+        for loss_name, loss_val in iter_ft(output_as_dict.items(),
+                                           transform=lambda k, v: torch.stack(v).mean(),
+                                           condition=lambda k, v: ("loss" in k)):
+            self.log(f"{prefix}/{loss_name}", loss_val, prog_bar=False)
+
+        eval_rets = self.evaluator.eval(input_dict=dict(iter_ft(
+            output_as_dict.items(),
+            transform=lambda k, v: torch.cat(v),
+            condition=lambda k, v: ("loss" not in k))))
+        for metric, value in eval_rets.items():
+            self.log(f"{prefix}/{metric}", value, prog_bar=True)
 
     def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        raise NotImplementedError
+        self.epoch_end("train", outputs)
 
     def validation_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self._encoded_x = None  # cache flush
-        raise NotImplementedError
+        self.epoch_end("valid", outputs)
 
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self._encoded_x = None  # cache flush
-        raise NotImplementedError
+        self.epoch_end("test", outputs)
 
 
 if __name__ == '__main__':

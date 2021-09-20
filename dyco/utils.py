@@ -65,9 +65,19 @@ def try_get_from_dict(o, name_list: List[Any],
                    iter_all=iter_all, as_dict=as_dict)
 
 
+def ld_to_dl(list_of_dict: List[Dict[Any, Any]]) -> Dict[Any, List]:
+    # https://stackoverflow.com/a/33046935
+    return {k: [_dict[k] for _dict in list_of_dict] for k in list_of_dict[0]}
+
+
 def iter_transform(iterator, transform: Callable = None):
     for it in iterator:
         yield it if transform is None else transform(it)
+
+
+def iter_ft(iterator, transform: Callable = None, condition: Callable = None):
+    iterator_f = iterator if condition is None else filter(condition, iterator)
+    return iter_transform(iterator_f, transform)
 
 
 def merge_dict_by_keys(first_dict: dict, second_dict: dict, keys: list):
@@ -285,13 +295,19 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "try_get_from_dict"
+    METHOD = "iter_ft"
 
     from pytorch_lightning import seed_everything
 
     seed_everything(42)
 
-    if METHOD == "to_index_chunks_by_values":
+    if METHOD == "iter_ft":
+        pprint(list(iter_ft(
+            range(5),
+            transform=lambda x: x ** 2,
+            condition=lambda x: (x % 2 == 0))))
+
+    elif METHOD == "to_index_chunks_by_values":
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
         print(to_index_chunks_by_values(_tensor_1d))
 
