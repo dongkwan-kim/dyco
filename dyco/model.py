@@ -130,7 +130,7 @@ class StaticGraphModel(LightningModule):
         self._encoded_x: Optional[Tensor] = None
 
         self.evaluator = VersatileGraphEvaluator(
-            name=self.h.dataset_name,
+            name=data_module.h.dataset_name,
             metrics=self.h.metrics,
         )
 
@@ -189,8 +189,8 @@ class StaticGraphModel(LightningModule):
             mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)
             log_prob = out["log_prob"]
             y = batch.y.squeeze(1)
-            rets = {"pred": log_prob[mask], "y": y[mask]}
-            loss = self.predictor_loss(rets["pred"], rets["y"])
+            rets = {"y_pred": log_prob[mask], "y_true": y[mask]}
+            loss = self.predictor_loss(rets["y_pred"], rets["y_true"])
 
         # ogbl-collab: BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
         elif "pos_edge_prob" in out:
