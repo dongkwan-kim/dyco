@@ -10,6 +10,7 @@ from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
 from data_utils import BatchType
+from evaluator import VersatileGraphEvaluator
 from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
 from utils import try_getattr
@@ -128,6 +129,11 @@ class StaticGraphModel(LightningModule):
 
         self._encoded_x: Optional[Tensor] = None
 
+        self.evaluator = VersatileGraphEvaluator(
+            name=self.h.dataset_name,
+            metrics=self.h.metrics,
+        )
+
     def forward(self,
                 x, edge_index, rel=None,
                 encoded_x=None,
@@ -188,7 +194,7 @@ class StaticGraphModel(LightningModule):
         # ogbl-collab: BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
         elif "pos_edge_prob" in out:
             pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
-            rets = {"pos_pred": pos_edge_prob, "neg_pred": neg_edge_prob}
+            rets = {"y_pred_pos": pos_edge_prob, "y_pred_neg": neg_edge_prob}
             loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
 
         # Temporal-KG: CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
@@ -219,6 +225,9 @@ class StaticGraphModel(LightningModule):
         else:
             return None
 
+    def step(self, prefix: str, batch: BatchType, batch_idx: int):
+        raise NotImplementedError
+
     def training_step(self, batch: BatchType, batch_idx: int):
         """
         :param batch: Keys are
@@ -236,14 +245,12 @@ class StaticGraphModel(LightningModule):
         pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
         proj_loss = self.get_projector_loss(batch, out)
 
-        """
-        train_loss = F.cross_entropy(y_hat, yToSparseTensor)
-        self.train_acc(y_hat.softmax(dim=-1), y)
-        self.log('train_acc', self.train_acc, prog_bar=True, on_step=False,
-                 on_epoch=True)
-        return train_loss
-        """
-        raise NotImplementedError
+        total_loss = 0
+        if pred_loss is not None:
+            total_loss += self.h.lambda_pred * pred_loss
+        if proj_loss is not None:
+            total_loss += self.h.lambda_proj * proj_loss
+        return {"loss": total_loss, **pred_rets}
 
     def validation_step(self, batch: BatchType, batch_idx: int):
         x_and_edge_kwargs = x_and_edge(batch)
@@ -260,12 +267,12 @@ class StaticGraphModel(LightningModule):
             assert self._encoded_x is None
             self._encoded_x = out["encoded_x"]
 
-        """
-        self.val_acc(y_hat.softmax(dim=-1), y)
-        self.log('val_acc', self.val_acc, prog_bar=True, on_step=False,
-                 on_epoch=True)
-        """
-        raise NotImplementedError
+        total_loss = 0
+        if pred_loss is not None:
+            total_loss += self.h.lambda_pred * pred_loss
+        if proj_loss is not None:
+            total_loss += self.h.lambda_proj * proj_loss
+        return {"loss": total_loss, **pred_rets}
 
     def test_step(self, batch: BatchType, batch_idx: int):
         x_and_edge_kwargs = x_and_edge(batch)
@@ -277,15 +284,20 @@ class StaticGraphModel(LightningModule):
 
         pred_loss, pred_rets = self.get_predictor_loss_and_results(batch, out, x_and_edge_kwargs)
         # No proj_loss for test_step
+        proj_loss = None
 
         if "encoded_x" in out and batch_idx == 0:
             assert self._encoded_x is None
             self._encoded_x = out["encoded_x"]
-        """
-        self.test_acc(y_hat.softmax(dim=-1), y)
-        self.log('test_acc', self.test_acc, prog_bar=True, on_step=False,
-                 on_epoch=True)
-        """
+
+        total_loss = 0
+        if pred_loss is not None:
+            total_loss += self.h.lambda_pred * pred_loss
+        if proj_loss is not None:
+            total_loss += self.h.lambda_proj * proj_loss
+        return {"loss": total_loss, **pred_rets}
+
+    def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         raise NotImplementedError
 
     def validation_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
@@ -349,6 +361,10 @@ if __name__ == '__main__':
 
             use_predictor=True,
             predictor_type="Edge/HadamardProduct",
+            metrics=["hits@10", "hits@50", "hits@100"],
+
+            lambda_pred=1.0,
+            lambda_proj=1.0,
 
             learning_rate=1e-3,
             weight_decay=1e-5,
