@@ -11,7 +11,7 @@ from pytorch_lightning import (
 )
 from pytorch_lightning.loggers import LightningLoggerBase
 
-from logger_utils import get_logger, log_hyperparameters, finish
+from run_utils import get_logger, log_hyperparameters, finish
 
 
 """Codes are adopted from
