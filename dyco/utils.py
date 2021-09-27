@@ -65,6 +65,15 @@ def try_get_from_dict(o, name_list: List[Any],
                    iter_all=iter_all, as_dict=as_dict)
 
 
+def get_log_func(func=print, **kwargs):
+
+    def _func(*_args, **_kwargs):
+        kwargs.update(**_kwargs)
+        func(*_args, **kwargs)
+
+    return _func
+
+
 def ld_to_dl(list_of_dict: List[Dict[Any, Any]]) -> Dict[Any, List]:
     # https://stackoverflow.com/a/33046935
     return {k: [_dict[k] for _dict in list_of_dict] for k in list_of_dict[0]}
@@ -295,7 +304,7 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "iter_ft"
+    METHOD = "get_log_func"
 
     from pytorch_lightning import seed_everything
 
@@ -306,6 +315,10 @@ if __name__ == '__main__':
             range(5),
             transform=lambda x: x ** 2,
             condition=lambda x: (x % 2 == 0))))
+
+    elif METHOD == "get_log_func":
+        print_red = get_log_func(cprint, color="red")
+        print_red("this is red print")
 
     elif METHOD == "to_index_chunks_by_values":
         _tensor_1d = torch.Tensor([24, 20, 21, 21, 20, 23, 24])
