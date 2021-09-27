@@ -37,17 +37,21 @@ def train(config: DictConfig) -> Optional[float]:
 
     # Init lightning datamodule
     log.info(f"Instantiating datamodule <{config.datamodule._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(config.datamodule)
+    datamodule: LightningDataModule = hydra.utils.instantiate(config.datamodule, log_func=log.info)
 
     # Init lightning model
     log.info(f"Instantiating model <{config.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(config.model)
+    model: LightningModule = hydra.utils.instantiate(config.model, data_module=datamodule)
+    log.info(model)
 
     # Init lightning callbacks
     callbacks: List[Callback] = []
     if "callbacks" in config:
         for _, cb_conf in config.callbacks.items():
             if "_target_" in cb_conf:
+                # Lazy load metrics and set the first as monitor.
+                if "monitor" in cb_conf and cb_conf.monitor is None:
+                    cb_conf.monitor = f"valid/{config.model.metrics[0]}"
                 log.info(f"Instantiating callback <{cb_conf._target_}>")
                 callbacks.append(hydra.utils.instantiate(cb_conf))
 

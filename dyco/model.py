@@ -1,5 +1,5 @@
 from argparse import Namespace
-from typing import Dict, Union, Optional, Tuple
+from typing import Dict, Union, Optional, Tuple, Any, List
 
 import torch
 import torch.nn as nn
@@ -36,9 +36,35 @@ class StaticGraphModel(LightningModule):
     def h(self):
         return self.hparams
 
-    def __init__(self, hparams, data_module: DyGraphDataModule):  # todo
+    def __init__(self,
+                 node_embedding_type: str,
+                 num_node_emb_channels: int,
+                 edge_embedding_type: str,
+                 num_edge_emb_channels: int,
+                 encoder_layer_name: str,
+                 num_layers: int,
+                 hidden_channels: int,
+                 out_channels: Optional[int],
+                 activation: str,
+                 use_bn: bool,
+                 use_skip: bool,
+                 dropout_channels: float,
+                 layer_kwargs: Dict[str, Any],
+                 use_projector: bool,
+                 projected_channels: int,
+                 projector_infonce_temperature: float,
+                 projector_readout_types: str,
+                 use_predictor: bool,
+                 predictor_type: str,
+                 metrics: List[str],
+                 lambda_pred: float,
+                 lambda_proj: float,
+                 learning_rate: float,
+                 weight_decay: float,
+                 data_module: DyGraphDataModule = None):
         super().__init__()
-        self.save_hyperparameters(hparams)
+        assert data_module is not None
+        self.save_hyperparameters(ignore=["data_module"])
 
         if data_module.num_node_features > 0:
             node_embedding_type, num_node_emb_channels = "UseRawFeature", data_module.num_node_features
@@ -326,7 +352,7 @@ if __name__ == '__main__':
     if LOADER == "EdgeLoader" or EVAL_LOADER == "EdgeLoader":
         assert NAME == "ogbl-collab"
 
-    _dgdm = DyGraphDataModule(Namespace(
+    _dgdm = DyGraphDataModule(
         verbose=2,
         dataset_name=NAME,
         dataset_path="/mnt/nas2/GNN-DATA/PYG/",
@@ -338,42 +364,40 @@ if __name__ == '__main__':
         eval_batch_size=None,
         step_size=1,
         num_workers=0,
-    ))
+    )
     print(_dgdm)
     print("model_kwargs", _dgdm.model_kwargs)
 
     _sgm = StaticGraphModel(
-        hparams=Namespace(
-            node_embedding_type="Embedding",
-            num_node_emb_channels=128,
-            edge_embedding_type="Embedding",
-            num_edge_emb_channels=128,
+        node_embedding_type="Embedding",
+        num_node_emb_channels=128,
+        edge_embedding_type="Embedding",
+        num_edge_emb_channels=128,
 
-            encoder_layer_name="GATConv",
-            num_layers=3,
-            hidden_channels=256,
-            out_channels=None,
-            activation="relu",
-            use_bn=False,
-            use_skip=True,
-            dropout_channels=0.5,
-            layer_kwargs={"heads": 8},
+        encoder_layer_name="GATConv",
+        num_layers=3,
+        hidden_channels=256,
+        out_channels=None,
+        activation="relu",
+        use_bn=False,
+        use_skip=True,
+        dropout_channels=0.5,
+        layer_kwargs={"heads": 8},
 
-            use_projector=True,
-            projected_channels=128,
-            projector_infonce_temperature=0.5,
-            projector_readout_types="mean-max",
+        use_projector=True,
+        projected_channels=128,
+        projector_infonce_temperature=0.5,
+        projector_readout_types="mean-max",
 
-            use_predictor=True,
-            predictor_type="Edge/HadamardProduct",
-            metrics=["hits@10", "hits@50", "hits@100"],
+        use_predictor=True,
+        predictor_type="Edge/HadamardProduct",
+        metrics=["hits@10", "hits@50", "hits@100"],
 
-            lambda_pred=1.0,
-            lambda_proj=1.0,
+        lambda_pred=1.0,
+        lambda_proj=1.0,
 
-            learning_rate=1e-3,
-            weight_decay=1e-5,
-        ),
+        learning_rate=1e-3,
+        weight_decay=1e-5,
         data_module=_dgdm,
     )
     print(_sgm)

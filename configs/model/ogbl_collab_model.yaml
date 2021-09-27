@@ -1,0 +1,16 @@
+_target_: model.StaticGraphModel
+
+defaults:
+  - common_model.yaml
+
+use_projector: True
+projected_channels: 64
+projector_infonce_temperature: 0.5
+projector_readout_types: mean-max
+
+use_predictor: True
+predictor_type: Edge/HadamardProduct
+metrics: ["hits@10", "hits@50", "hits@100"]
+
+lambda_pred: 1.0
+lambda_proj: 1.0

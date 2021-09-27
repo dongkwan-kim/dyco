@@ -16,7 +16,7 @@ from torch_geometric.utils import add_self_loops
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
 from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT, DatasetType
-from utils import try_getattr
+from utils import try_getattr, get_log_func
 
 
 class DyGraphDataModule(LightningDataModule):
@@ -25,9 +25,22 @@ class DyGraphDataModule(LightningDataModule):
     def h(self):
         return self.hparams
 
-    def __init__(self, hparams, prepare_data=False):
+    def __init__(self,
+                 dataset_name: str,
+                 dataset_path: str,
+                 dataloader_type: str,
+                 batch_size: int,
+                 eval_dataloader_type=None,
+                 eval_batch_size=None,
+                 step_size=1,
+                 use_temporal_data=False,
+                 use_sparse_tensor=False,
+                 verbose=2,
+                 num_workers=0,
+                 prepare_data=False,
+                 log_func=None):
         super().__init__()
-        self.save_hyperparameters(hparams)
+        self.save_hyperparameters(ignore=["prepare_data", "logger"])
         self._dataset: Optional[DatasetType] = None
         self.train_data, self.val_data, self.test_data = None, None, None
         self.split_idx: Union[Dict, None] = None
@@ -36,8 +49,10 @@ class DyGraphDataModule(LightningDataModule):
         if prepare_data:
             self.prepare_data()
         self.setup()
+
+        self.log_func = log_func or get_log_func(cprint, color="green")
         if self.h.verbose >= 1:
-            cprint(f"{self.__class__.__name__}/{self.h.dataset_name}: prepared and set up!", "green")
+            self.log_func(f"{self.__class__.__name__}/{self.h.dataset_name}: prepared and set up!")
 
     @property
     def split_edge(self) -> dict:
@@ -62,7 +77,7 @@ class DyGraphDataModule(LightningDataModule):
     @property
     def num_nodes(self) -> int:
         return self.dataset.num_nodes
-    
+
     @property
     def num_rels(self) -> int:
         return self.dataset.num_rels if hasattr(self.dataset, "num_rels") else 0
@@ -216,7 +231,7 @@ if __name__ == '__main__':
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
     # BitcoinOTC
-    NAME = "SingletonICEWS18"
+    NAME = "ogbn-arxiv"
     LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
     EVAL_LOADER = "NoLoader"  # + None
     USE_TEMPORAL_DATA = False
@@ -224,19 +239,19 @@ if __name__ == '__main__':
     if LOADER == "EdgeLoader" or EVAL_LOADER == "EdgeLoader":
         assert NAME == "ogbl-collab"
 
-    _dgdm = DyGraphDataModule(Namespace(
-        verbose=2,
+    _dgdm = DyGraphDataModule(
         dataset_name=NAME,
         dataset_path="/mnt/nas2/GNN-DATA/PYG/",
         dataloader_type=LOADER,
-        eval_dataloader_type=EVAL_LOADER,
-        use_temporal_data=USE_TEMPORAL_DATA,
-        use_sparse_tensor=True,
         batch_size=8,
+        eval_dataloader_type=EVAL_LOADER,
         eval_batch_size=None,
         step_size=1,
+        use_temporal_data=USE_TEMPORAL_DATA,
+        use_sparse_tensor=True,
+        verbose=2,
         num_workers=0,
-    ))
+    )
     print(_dgdm)
     print("model_kwargs", _dgdm.model_kwargs)
     cprint("Train ----", "green")

@@ -1,0 +1,17 @@
+node_embedding_type: Embedding
+num_node_emb_channels: 64
+edge_embedding_type: Embedding
+num_edge_emb_channels: 64
+
+encoder_layer_name: SAGEConv
+num_layers: 3
+hidden_channels: 64
+out_channels: # None
+activation: relu
+use_bn: False
+use_skip: True
+dropout_channels: 0.2
+layer_kwargs: {}
+
+learning_rate: 1e-3
+weight_decay: 1e-5
