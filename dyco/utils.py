@@ -25,7 +25,7 @@ def _try_do(do: Callable,
             obj, name_list: List[Any],
             default=__MAGIC__, iter_all=True,
             as_dict=True) -> Union[Dict[Any, Any], List, Any]:
-    e = None
+    _e = None
     ret_list = list()
     real_name_list = []
     for name in name_list:
@@ -35,7 +35,7 @@ def _try_do(do: Callable,
             if not iter_all:
                 break
         except Exception as e:
-            pass
+            _e = e
     if len(ret_list) > 0:
         if as_dict:
             return dict(zip(real_name_list, ret_list))
@@ -47,7 +47,7 @@ def _try_do(do: Callable,
         else:
             return default
     else:
-        raise e
+        raise _e
 
 
 def try_getattr(obj, name_list: List[str],
