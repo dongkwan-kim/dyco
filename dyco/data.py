@@ -16,7 +16,7 @@ from torch_geometric.utils import add_self_loops
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
 from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT, DatasetType
-from utils import try_getattr, get_log_func, idx_to_mask
+from utils import try_getattr, get_log_func, idx_to_mask, EternalIter
 
 
 class DyGraphDataModule(LightningDataModule):
@@ -175,7 +175,7 @@ class DyGraphDataModule(LightningDataModule):
                                 pos_edge_index=pos_train_edge, neg_edge_index="trivial_random_samples",
                                 num_nodes=self.num_nodes, additional_kwargs=kwargs, shuffle=True)
         elif self.h.dataloader_type == "NoLoader":
-            loader = (d for d in [self.train_data])
+            loader = EternalIter([self.train_data])
         else:
             raise ValueError("Wrong options: ({}, use_temporal_data={})".format(
                 self.h.dataloader_type, self.h.use_temporal_data))
@@ -197,7 +197,7 @@ class DyGraphDataModule(LightningDataModule):
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes, ...
             )
         elif dataloader_type == "NoLoader":
-            loader = (d for d in [eval_data])
+            loader = EternalIter([eval_data])
         elif dataloader_type == "EdgeLoader":
             assert isinstance(eval_data, Data)  # todo: support TemporalData
             # Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L140-L178

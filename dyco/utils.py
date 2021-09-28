@@ -18,6 +18,16 @@ from torch_scatter import scatter
 import numpy as np
 from tqdm import tqdm
 
+
+class EternalIter:
+
+    def __init__(self, iterator):
+        self.iterator = iterator
+
+    def __iter__(self):
+        return iter(self.iterator)
+
+
 __MAGIC__ = "This is magic, please trust the author."
 
 
