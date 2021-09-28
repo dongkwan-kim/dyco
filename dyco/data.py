@@ -16,7 +16,7 @@ from torch_geometric.utils import add_self_loops
 from data_loader import SnapshotGraphLoader, EdgeLoader
 from data_utils import ToTemporalData, UseValEdgesAsInput, ToSymSparseTensor, ToSymmetric, FromTemporalData
 from dataset import get_dynamic_graph_dataset, SingletonICEWS18, SingletonGDELT, DatasetType
-from utils import try_getattr, get_log_func
+from utils import try_getattr, get_log_func, idx_to_mask
 
 
 class DyGraphDataModule(LightningDataModule):
@@ -139,7 +139,11 @@ class DyGraphDataModule(LightningDataModule):
                 self.split_idx = self._dataset[0].get_rel_split()
         elif self.h.dataset_name == "ogbn-arxiv":
             self.split_idx = self._dataset.get_idx_split()
+            node_split_mask = idx_to_mask(self.split_idx, self._dataset.num_nodes)
             self.train_data, self.val_data, self.test_data = self._dataset[0], self._dataset[0], self._dataset[0]
+            self.train_data.train_mask = node_split_mask["train"]
+            self.val_data.val_mask = node_split_mask["valid"]
+            self.test_data.test_mask = node_split_mask["test"]
             self.model_kwargs["add_self_loops"] = False  # important.
         elif self.h.dataset_name == "ogbl-collab":
             self.split_idx = self._dataset.get_edge_split()
@@ -171,7 +175,7 @@ class DyGraphDataModule(LightningDataModule):
                                 pos_edge_index=pos_train_edge, neg_edge_index="trivial_random_samples",
                                 num_nodes=self.num_nodes, additional_kwargs=kwargs, shuffle=True)
         elif self.h.dataloader_type == "NoLoader":
-            loader = [self.train_data]
+            loader = (d for d in [self.train_data])
         else:
             raise ValueError("Wrong options: ({}, use_temporal_data={})".format(
                 self.h.dataloader_type, self.h.use_temporal_data))
@@ -193,7 +197,7 @@ class DyGraphDataModule(LightningDataModule):
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes, ...
             )
         elif dataloader_type == "NoLoader":
-            loader = [eval_data]
+            loader = (d for d in [eval_data])
         elif dataloader_type == "EdgeLoader":
             assert isinstance(eval_data, Data)  # todo: support TemporalData
             # Implement https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L140-L178

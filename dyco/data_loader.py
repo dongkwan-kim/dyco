@@ -48,7 +48,7 @@ class SnapshotGraphLoader(DataLoader):
                  follow_batch=None, exclude_keys=None,
                  transform_after_collation=None,
                  snapshot_dir="./", num_nodes=None,
-                 node_split_idx=None, edge_split_idx=None,
+                 edge_split_idx=None,
                  **kwargs):
 
         self._data = data
@@ -62,10 +62,6 @@ class SnapshotGraphLoader(DataLoader):
 
         self.transform_after_collation: Callable[[Batch], Batch] = transform_after_collation
         self.snapshot_dir = snapshot_dir
-
-        if node_split_idx is not None:  # for ogbn-arxiv
-            node_split_mask = idx_to_mask(node_split_idx, num_nodes)
-            data.train_mask = node_split_mask["train"]
 
         self.transform_per_snapshot: Optional[Callable[[CoarseSnapshotData], CoarseSnapshotData]] = None
         if edge_split_idx is not None:  # for ogbl-collab
@@ -116,16 +112,11 @@ class SnapshotGraphLoader(DataLoader):
         except AttributeError:
             num_nodes = None
         try:
-            split_idx = dataset.get_idx_split()
-        except AttributeError:
-            split_idx = None
-        try:
             split_edge = dataset.get_edge_split()
         except AttributeError:
             split_edge = None
         return dict(snapshot_dir=dataset.processed_dir,
                     num_nodes=num_nodes,
-                    node_split_idx=split_idx,
                     edge_split_idx=split_edge)
 
     @staticmethod
