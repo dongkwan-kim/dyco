@@ -304,7 +304,7 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
 
 if __name__ == '__main__':
 
-    METHOD = "get_log_func"
+    METHOD = "iter_ft"
 
     from pytorch_lightning import seed_everything
 
@@ -312,9 +312,10 @@ if __name__ == '__main__':
 
     if METHOD == "iter_ft":
         pprint(list(iter_ft(
-            range(5),
-            transform=lambda x: x ** 2,
-            condition=lambda x: (x % 2 == 0))))
+            dict(enumerate(["a", "b", "c", "d", "e"])).items(),
+            transform=lambda kv: kv[1] + "/p",
+            condition=lambda kv: kv[0] % 2 == 0,
+        )))
 
     elif METHOD == "get_log_func":
         print_red = get_log_func(cprint, color="red")
