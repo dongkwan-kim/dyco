@@ -126,6 +126,7 @@ class VersatileGraphEvaluator:
         self.transform_to_reduce = transform_to_reduce or merge_dict
 
     def eval(self, input_dict: Dict[str, Tensor]) -> Dict[str, float]:
+        input_dict = self.preprocess_input_dict(input_dict)
         eval_outs = []
         for evaluator in self.transform_to_generate(self.evaluator):
             eval_outs.append(evaluator.eval(input_dict))
@@ -134,6 +135,13 @@ class VersatileGraphEvaluator:
     def __repr__(self):
         return "{}(name={}, metrics={})".format(
             self.__class__.__name__, self.name, self.full_metrics)
+
+    @staticmethod
+    def preprocess_input_dict(input_dict: Dict[str, Tensor]):
+        if "y_pred" in input_dict and input_dict["y_pred"].dim() == 2:  # ogbn-arxiv
+            input_dict["y_pred"] = input_dict["y_pred"].argmax(dim=-1).view(-1, 1)
+            input_dict["y_true"] = input_dict["y_true"].view(-1, 1)
+        return input_dict
 
     @staticmethod
     def parse_metrics(metrics):
