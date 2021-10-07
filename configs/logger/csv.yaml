@@ -2,7 +2,7 @@
 
 csv:
   _target_: pytorch_lightning.loggers.csv_logs.CSVLogger
-  save_dir: "."
-  name: "csv/"
+  save_dir: "${project_dir}/logs_csv/"
+  name: "${experiment_name}"
   version: null
   prefix: ""

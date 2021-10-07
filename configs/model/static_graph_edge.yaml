@@ -9,8 +9,10 @@ projector_infonce_temperature: 0.5
 projector_readout_types: mean-max
 
 use_predictor: True
-predictor_type: Node
-metrics: ["acc"]
+predictor_type: ${datamodule._predictor_type}
+metrics: ${datamodule._metrics}
+
+
 
 lambda_pred: 1.0
 lambda_proj: 1.0

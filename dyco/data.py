@@ -38,7 +38,8 @@ class DyGraphDataModule(LightningDataModule):
                  verbose=2,
                  num_workers=0,
                  prepare_data=False,
-                 log_func=None):
+                 log_func=None,
+                 *args, **kwargs):
         super().__init__()
         self.save_hyperparameters(ignore=["prepare_data", "logger"])
         self._dataset: Optional[DatasetType] = None

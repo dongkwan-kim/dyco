@@ -1,4 +1,5 @@
 from argparse import Namespace
+from pprint import pprint
 from typing import Dict, Union, Optional, Tuple, Any, List
 
 import torch
@@ -19,7 +20,7 @@ from utils import try_getattr, ld_to_dl, iter_ft
 def x_and_edge(batch) -> Dict[str, Tensor]:
     x = getattr(batch, "x", None)
     edge_index = try_getattr(batch, ["adj_t", "edge_index"], None,
-                             iter_all=False, as_dict=False)
+                             iter_all=False, as_dict=False)[0]
     rel = getattr(batch, "rel", None)
     if rel is not None:
         # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
@@ -27,6 +28,7 @@ def x_and_edge(batch) -> Dict[str, Tensor]:
     else:
         pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], {},
                                  iter_all=True, as_dict=True)
+        pred_edges.pop("default", None)
     return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
 
 
@@ -35,6 +37,10 @@ class StaticGraphModel(LightningModule):
     @property
     def h(self):
         return self.hparams
+
+    @property
+    def dh(self):
+        return self.given_datamodule.hparams
 
     def __init__(self,
                  node_embedding_type: str,
@@ -61,25 +67,26 @@ class StaticGraphModel(LightningModule):
                  lambda_proj: float,
                  learning_rate: float,
                  weight_decay: float,
-                 data_module: DyGraphDataModule = None):
+                 given_datamodule: DyGraphDataModule = None):
         super().__init__()
-        assert data_module is not None
-        self.save_hyperparameters(ignore=["data_module"])
+        self.save_hyperparameters(ignore=["given_datamodule"])
+        assert given_datamodule is not None
+        self.given_datamodule = given_datamodule
 
-        if data_module.num_node_features > 0:
-            node_embedding_type, num_node_emb_channels = "UseRawFeature", data_module.num_node_features
+        if given_datamodule.num_node_features > 0:
+            node_embedding_type, num_node_emb_channels = "UseRawFeature", given_datamodule.num_node_features
         else:
             node_embedding_type, num_node_emb_channels = self.h.node_embedding_type, self.h.num_node_emb_channels
         self.node_emb = VersatileEmbedding(
             embedding_type=node_embedding_type,
-            num_entities=data_module.num_nodes,
+            num_entities=given_datamodule.num_nodes,
             num_channels=num_node_emb_channels,
         )
-        use_edge_emb = data_module.num_rels > 0
+        use_edge_emb = given_datamodule.num_rels > 0
         if use_edge_emb:
             self.edge_emb = VersatileEmbedding(
                 embedding_type=self.h.edge_embedding_type,
-                num_entities=data_module.num_rels,
+                num_entities=given_datamodule.num_rels,
                 num_channels=self.h.num_edge_emb_channels,
             )
         else:
@@ -96,7 +103,7 @@ class StaticGraphModel(LightningModule):
             use_skip=self.h.use_skip,
             dropout_channels=self.h.dropout_channels,
             **self.h.layer_kwargs,
-            **data_module.model_kwargs,
+            **given_datamodule.model_kwargs,
         )
 
         self.projector, self.predictor = None, None
@@ -127,7 +134,7 @@ class StaticGraphModel(LightningModule):
                 num_layers=2,
                 in_channels=self.h.hidden_channels,
                 hidden_channels=self.h.hidden_channels,
-                out_channels=data_module.num_classes,
+                out_channels=given_datamodule.num_classes,
                 activation=self.h.activation,
                 use_bn=self.h.use_bn,
                 dropout=self.h.dropout_channels,
@@ -136,7 +143,7 @@ class StaticGraphModel(LightningModule):
             self.predictor_loss = nn.CrossEntropyLoss()
         elif self.h.predictor_type.lower().startswith("edge"):
             _, predictor_type = self.h.predictor_type.split("/")
-            out_channels = 1 if data_module.num_classes == 2 else data_module.num_classes
+            out_channels = 1 if given_datamodule.num_classes == 2 else given_datamodule.num_classes
             out_activation = "sigmoid" if out_channels == 1 else None
             self.predictor = EdgePredictor(
                 predictor_type=predictor_type,
@@ -156,7 +163,7 @@ class StaticGraphModel(LightningModule):
         self._encoded_x: Optional[Tensor] = None
 
         self.evaluator = VersatileGraphEvaluator(
-            name=data_module.h.dataset_name,
+            name=self.dh.dataset_name,
             metrics=self.h.metrics,
         )
 
@@ -169,10 +176,12 @@ class StaticGraphModel(LightningModule):
                 pred_edges: Dict[str, Tensor] = None
                 ) -> Dict[str, Tensor]:
 
+        encoder_kwargs = {}
         if encoded_x is None:
             x = self.node_emb(x)
-            edge_attr = self.edge_emb(rel) if rel is not None else None
-            x = self.encoder(x, edge_index, edge_attr=edge_attr)
+            if rel is not None:
+                encoder_kwargs["edge_attr"] = self.edge_emb(rel)
+            x = self.encoder(x, edge_index, **encoder_kwargs)
         else:
             x, edge_attr = encoded_x, None
 
@@ -212,7 +221,7 @@ class StaticGraphModel(LightningModule):
 
         # ogbn-arxiv: CrossEntropyLoss(logits[mask], y[mask])
         if "log_prob" in out:
-            mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)
+            mask = try_getattr(batch, ["train_mask", "val_mask", "test_mask"], iter_all=False, as_dict=False)[0]
             log_prob = out["log_prob"]
             y = batch.y.squeeze(1)
             rets = {"y_pred": log_prob[mask], "y_true": y[mask]}
@@ -226,7 +235,7 @@ class StaticGraphModel(LightningModule):
 
         # Temporal-KG: CrossEntropyLoss(obj_log_prob, obj_node) + CrossEntropyLoss(sub_log_prob, sub_node)
         elif "obj_log_prob" in out:
-            mask = try_getattr(batch, ["val_mask", "test_mask"], default=None, iter_all=False, as_dict=False)
+            mask = try_getattr(batch, ["val_mask", "test_mask"], default=None, iter_all=False, as_dict=False)[0]
             # edge_index=[sub, obj] is used to predict obj_log_prob, sub_log_prob.
             sub_node, obj_node = x_and_edge_kwargs["obj"], x_and_edge_kwargs["sub"]
             obj_log_prob, sub_log_prob = out["obj_log_prob"], out["sub_log_prob"]
@@ -248,7 +257,7 @@ class StaticGraphModel(LightningModule):
 
     def get_proj_loss(self, batch: BatchType, out: Dict[str, Tensor]) -> Optional[Tensor]:
         if "proj_x" in out:
-            return self.projector_loss(out["proj_x"], batch)
+            return self.projector_loss(out["proj_x"], batch.batch)
         else:
             return None
 
@@ -298,19 +307,21 @@ class StaticGraphModel(LightningModule):
         )
 
     def validation_step(self, batch: BatchType, batch_idx: int):
+        eval_dataloader_type = self.dh.eval_dataloader_type or self.dh.dataloader_type
         return self.step(
             batch=batch, batch_idx=batch_idx,
             use_predictor=self.h.use_predictor,
-            use_projector=self.h.use_projector,
-            cache_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+            use_projector=self.h.use_projector and (eval_dataloader_type == "SnapshotGraphLoader"),
+            cache_encoded_x=(eval_dataloader_type == "EdgeLoader"),
         )
 
     def test_step(self, batch: BatchType, batch_idx: int):
+        eval_dataloader_type = self.dh.eval_dataloader_type or self.dh.dataloader_type
         return self.step(
             batch=batch, batch_idx=batch_idx,
             use_predictor=True,
             use_projector=False,
-            cache_encoded_x=(self.h.dataloader_type == "EdgeLoader"),
+            cache_encoded_x=(eval_dataloader_type == "EdgeLoader"),
         )
 
     def epoch_end(self, prefix, outputs):
@@ -319,14 +330,14 @@ class StaticGraphModel(LightningModule):
         output_as_dict = ld_to_dl(outputs)
 
         for loss_name, loss_val in iter_ft(output_as_dict.items(),
-                                           transform=lambda k, v: torch.stack(v).mean(),
-                                           condition=lambda k, v: ("loss" in k)):
+                                           transform=lambda kv: (kv[0], torch.stack(kv[1]).mean()),
+                                           condition=lambda kv: ("loss" in kv[0])):
             self.log(f"{prefix}/{loss_name}", loss_val, prog_bar=False)
 
         eval_rets = self.evaluator.eval(input_dict=dict(iter_ft(
             output_as_dict.items(),
-            transform=lambda k, v: torch.cat(v),
-            condition=lambda k, v: ("loss" not in k))))
+            transform=lambda kv: (kv[0], torch.cat(kv[1])),
+            condition=lambda kv: ("loss" not in kv[0]))))
         for metric, value in eval_rets.items():
             self.log(f"{prefix}/{metric}", value, prog_bar=True)
 
@@ -398,6 +409,6 @@ if __name__ == '__main__':
 
         learning_rate=1e-3,
         weight_decay=1e-5,
-        data_module=_dgdm,
+        given_datamodule=_dgdm,
     )
     print(_sgm)

@@ -3,9 +3,9 @@
 # specify here default training configuration
 defaults:
   - datamodule: ogbn_arxiv_data.yaml
-  - model: ogbn_arxiv_model.yaml
+  - model: static_graph_node.yaml
   - callbacks: default.yaml # set this to null if you don't want to use callbacks
-  - logger: tensorboard.yaml
+  - logger: many_loggers.yaml # tensorboard.yaml, csv.yaml, many_loggers.yaml
   - trainer: default.yaml
 
   - experiment: null
@@ -22,6 +22,8 @@ defaults:
 # so it's useful to have this path as a special variable
 # learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
 work_dir: ${hydra:runtime.cwd}
+project_dir: ${work_dir}/..
+experiment_name: ${datamodule.dataset_name}/${model._target_}
 
 # path to folder with data
 dataset_path: /mnt/nas2/GNN-DATA/PYG/
