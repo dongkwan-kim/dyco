@@ -7,9 +7,7 @@ gpus: [0]
 min_epochs: 1
 max_epochs: 10
 
-weights_summary: null
-
 progress_bar_refresh_rate: 1
 num_sanity_val_steps: 0
-
-resume_from_checkpoint: null
+benchmark: True
+deterministic: True

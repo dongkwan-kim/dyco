@@ -1,6 +1,6 @@
 model_checkpoint:
   _target_: pytorch_lightning.callbacks.ModelCheckpoint
-  dirpath: "${project_dir}/checkpoints/${experiment_name}/${now:%Y-%m-%d-%H-%M-%S}"
+  dirpath: "./checkpoints/"  # parent path is hydra.dir
   filename: "epoch_{epoch:03d}"
   monitor: # Lazy loading, name of the logged metric which determines when model is improving
   mode: "max" # can be "max" or "min"
