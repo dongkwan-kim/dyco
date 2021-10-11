@@ -9,7 +9,7 @@ defaults:
   - trainer: default.yaml
 
   - experiment: null
-  - hparams_search: null
+  - hparams_search: null  # sgn_optuna
 
   - hydra: default.yaml
 
