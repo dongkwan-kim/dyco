@@ -12,7 +12,7 @@ from pytorch_lightning import (
 from pytorch_lightning.loggers import LightningLoggerBase
 
 from run_utils import get_logger, log_hyperparameters, finish
-
+from utils import make_deterministic_everything
 
 """Codes are adopted from
     https://github.com/ashleve/lightning-hydra-template/blob/main/src/train.py
@@ -34,6 +34,7 @@ def train(config: DictConfig) -> Optional[float]:
     # Set seed for random number generators in pytorch, numpy and python.random
     if "seed" in config:
         seed_everything(config.seed, workers=True)
+        make_deterministic_everything(config.seed)
 
     # Init lightning datamodule
     log.info(f"Instantiating datamodule <{config.datamodule._target_}>")

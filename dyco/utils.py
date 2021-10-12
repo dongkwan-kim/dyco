@@ -1,4 +1,5 @@
 import time
+import random
 from functools import reduce
 from pprint import pprint
 from typing import Dict, Any, List, Tuple, Optional, Callable, Union
@@ -176,6 +177,15 @@ def print_time(method):  # Decorator
 
 
 # PyTorch/PyTorch Geometric related methods
+
+
+def make_deterministic_everything(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def act(tensor, activation_name, **kwargs):
