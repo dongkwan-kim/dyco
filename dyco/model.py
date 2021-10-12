@@ -15,6 +15,9 @@ from evaluator import VersatileGraphEvaluator
 from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
 from utils import try_getattr, ld_to_dl, iter_ft
+from run_utils import get_logger
+
+log = get_logger(__name__)
 
 
 def x_and_edge(batch) -> Dict[str, Tensor]:
@@ -324,7 +327,7 @@ class StaticGraphModel(LightningModule):
             cache_encoded_x=(eval_dataloader_type == "EdgeLoader"),
         )
 
-    def epoch_end(self, prefix, outputs):
+    def epoch_end(self, prefix, outputs, idx_of_hp_metric=None):
         self._encoded_x = None  # cache flush
 
         output_as_dict = ld_to_dl(outputs)
@@ -338,8 +341,11 @@ class StaticGraphModel(LightningModule):
             output_as_dict.items(),
             transform=lambda kv: (kv[0], torch.cat(kv[1])),
             condition=lambda kv: ("loss" not in kv[0]))))
-        for metric, value in eval_rets.items():
+        for i, (metric, value) in enumerate(eval_rets.items()):
             self.log(f"{prefix}/{metric}", value, prog_bar=True)
+            if idx_of_hp_metric is not None and i == idx_of_hp_metric:
+                self.logger.log_metrics({"hp_metric": float(value)})
+                log.info(f"Log '{metric}' as hp_metric")
 
     def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         self.epoch_end("train", outputs)
@@ -348,7 +354,7 @@ class StaticGraphModel(LightningModule):
         self.epoch_end("valid", outputs)
 
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self.epoch_end("test", outputs)
+        self.epoch_end("test", outputs, idx_of_hp_metric=0)
 
 
 if __name__ == '__main__':
