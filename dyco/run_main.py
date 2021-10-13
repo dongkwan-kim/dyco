@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 
 import hydra
@@ -89,6 +90,9 @@ def train(config: DictConfig) -> Optional[float]:
     if config.get("test_after_training") and not config.trainer.get("fast_dev_run"):
         log.info("Starting testing!")
         trainer.test()
+        if config.get("remove_best_model_ckpt") and trainer.checkpoint_callback.best_model_path:
+            os.remove(trainer.checkpoint_callback.best_model_path)
+            log.info(f"Removed: {trainer.checkpoint_callback.best_model_path}")
 
     # Make sure everything closed properly
     log.info("Finalizing!")
