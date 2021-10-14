@@ -5,7 +5,7 @@ model_checkpoint:
   monitor: # Lazy loading, name of the logged metric which determines when model is improving
   mode: "max" # can be "max" or "min"
   save_top_k: 1 # save k best models (determined by above metric)
-  save_last: True # additionally, always save model from last epoch
+  save_last: False # additionally, always save model from last epoch
   verbose: True
   auto_insert_metric_name: False
 

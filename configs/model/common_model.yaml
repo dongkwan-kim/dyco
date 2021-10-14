@@ -3,15 +3,15 @@ num_node_emb_channels: 64
 edge_embedding_type: Embedding
 num_edge_emb_channels: 64
 
-encoder_layer_name: SAGEConv
+encoder_layer_name: GCNConv  # GCNConv, SAGEConv, GATConv
 num_layers: 3
-hidden_channels: 64
+hidden_channels: 128
 out_channels: # None
 activation: relu
-use_bn: False
-use_skip: True
-dropout_channels: 0.2
-layer_kwargs: {}
+use_bn: True
+use_skip: False
+dropout_channels: 0.1
+layer_kwargs: {heads: 8, dropout: "${model.dropout_channels}"}
 
 learning_rate: 1e-3
 weight_decay: 1e-5

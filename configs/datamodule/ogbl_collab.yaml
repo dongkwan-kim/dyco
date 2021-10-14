@@ -16,7 +16,7 @@ eval_batch_size: # None
 
 step_size: 1
 use_temporal_data: False
-use_sparse_tensor: False
+use_sparse_tensor: True
 
 verbose: 2
 num_workers: 0
@@ -24,3 +24,6 @@ num_workers: 0
 # Will be inherited to the model
 _predictor_type: Edge/HadamardProduct
 _metrics: ["hits@10", "hits@50", "hits@100"]
+
+# Will be inherited to the trainer
+_max_epochs: 700

@@ -11,12 +11,12 @@ dataset_path: ${dataset_path} # dataset_path is specified in config.yaml
 dataloader_type: SnapshotGraphLoader
 eval_dataloader_type: NoLoader
 
-batch_size: 8
+batch_size: 24  # max 35
 eval_batch_size: # None
 
 step_size: 1
 use_temporal_data: False
-use_sparse_tensor: False
+use_sparse_tensor: True
 
 verbose: 2
 num_workers: 0
@@ -24,3 +24,6 @@ num_workers: 0
 # Will be inherited to the model
 _predictor_type: Node
 _metrics: ["acc"]
+
+# Will be inherited to the trainer
+_max_epochs: 700
