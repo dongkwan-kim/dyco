@@ -197,7 +197,7 @@ def get_gnn_conv_and_kwargs(gnn_name, **kwargs):
         gnn_cls = SAGEConv
     elif gnn_name == "GATConv":
         gnn_cls = MyGATConv
-        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops", "heads"])
+        gkw = merge_dict_by_keys(gkw, kwargs, ["add_self_loops", "heads", "dropout"])
     elif gnn_name == "Linear":
         gnn_cls = MyLinear
     else:
