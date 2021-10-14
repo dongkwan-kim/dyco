@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Union
 
 import hydra
 from omegaconf import DictConfig
@@ -23,13 +23,14 @@ from utils import make_deterministic_everything
 log = get_logger(__name__)
 
 
-def train(config: DictConfig) -> Optional[float]:
+def train(config: DictConfig) -> Optional[Union[float, Dict[str, float]]]:
     """Contains training pipeline.
     Instantiates all PyTorch Lightning objects from config.
     Args:
         config (DictConfig): Configuration composed by Hydra.
     Returns:
         Optional[float]: Metric score for hyperparameter optimization.
+        Optional[Dict[str, float]]: Metric score for averaging scores.
     """
 
     # Set seed for random number generators in pytorch, numpy and python.random
@@ -113,6 +114,11 @@ def train(config: DictConfig) -> Optional[float]:
     if optimized_metric:
         return trainer.callback_metrics[optimized_metric]
 
+    averaging_metrics: List[str] = config.get("averaging_metrics")
+    if averaging_metrics:
+        return {metric: trainer.callback_metrics[metric]
+                for metric in averaging_metrics}
+
 
 @hydra.main(config_path="../configs/", config_name="config.yaml")
 def main(config: DictConfig):
@@ -133,7 +139,16 @@ def main(config: DictConfig):
         run_utils.print_config(config, resolve=True)
 
     # Train model
-    return train(config)
+    num_averaging: Optional[int] = config.get("num_averaging")
+    if num_averaging:
+        import utils
+        import numpy as np
+        trained = utils.ld_to_dl([train(config) for _ in range(num_averaging)])
+        for k, v in trained.items():
+            log.info(f"{k}: {float(np.mean(v))} +- {float(np.std(v))}")
+        return trained
+    else:
+        return train(config)
 
 
 if __name__ == "__main__":
