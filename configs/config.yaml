@@ -28,11 +28,15 @@ experiment_name: ${datamodule.dataset_name}/${model._target_}
 # path to folder with data
 dataset_path: /mnt/nas2/GNN-DATA/PYG/
 
+# Averaging after multiruns
+num_averaging: 10
+
 # use `python run.py debug=true` for easy debugging!
 # this will run 1 train, val and test loop with only 1 batch
 # equivalent to running `python run.py trainer.fast_dev_run=true`
 # (this is placed here just for easier access from command line)
 debug: False
+debug_test: False
 
 # pretty print config at the start of the run using Rich library
 print_config: True

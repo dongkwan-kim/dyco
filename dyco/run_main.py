@@ -90,9 +90,10 @@ def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[
     trainer.fit(model=model, datamodule=datamodule)
 
     # Evaluate model on test set, using the best model achieved during training
+    test_results = None
     if config.get("test_after_training") and not config.trainer.get("fast_dev_run"):
         log.info("Starting testing!")
-        trainer.test()
+        test_results = trainer.test()
         if config.get("remove_best_model_ckpt") and trainer.checkpoint_callback.best_model_path:
             os.remove(trainer.checkpoint_callback.best_model_path)
             log.info(f"Removed: {trainer.checkpoint_callback.best_model_path}")
@@ -116,10 +117,9 @@ def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[
     if optimized_metric:
         return trainer.callback_metrics[optimized_metric]
 
-    averaging_metrics: List[str] = config.get("averaging_metrics")
-    if averaging_metrics:
-        return {metric: trainer.callback_metrics[metric]
-                for metric in averaging_metrics}
+    if test_results:
+        # test_results is List[dict], but the length is 1.
+        return test_results[-1]
 
 
 @hydra.main(config_path="../configs/", config_name="config.yaml")
@@ -142,7 +142,8 @@ def main(config: DictConfig):
 
     # Train model
     num_averaging: Optional[int] = config.get("num_averaging")
-    if num_averaging and config.get("averaging_metrics"):
+    if num_averaging and not config.get("optimized_metric"):
+        log.info(f"Averaging test results by {num_averaging} runs")
         import utils
         import numpy as np
         trained = utils.ld_to_dl([train(config, seed_plus=i)

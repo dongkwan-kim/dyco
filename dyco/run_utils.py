@@ -53,8 +53,13 @@ def extras(config: DictConfig) -> None:
         log.info("Running in debug mode! <config.debug=True>")
         config.trainer.fast_dev_run = True
 
+    if config.get("debug_test"):
+        log.info("Running in debug_test mode! <config.debug_test=True>")
+        config.trainer.min_epochs = 0
+        config.trainer.max_epochs = 1
+
     # force debugger friendly configuration if <config.trainer.fast_dev_run=True>
-    if config.trainer.get("fast_dev_run"):
+    if config.trainer.get("fast_dev_run") or config.get("debug_test"):
         log.info("Forcing debugger friendly configuration! <config.trainer.fast_dev_run=True>")
         # Debuggers don't like GPUs or multiprocessing
         if config.trainer.get("gpus"):
