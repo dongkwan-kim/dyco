@@ -146,8 +146,7 @@ def main(config: DictConfig):
         log.info(f"Averaging test results by {num_averaging} runs")
         import utils
         import numpy as np
-        trained = utils.ld_to_dl([train(config, seed_plus=i)
-                                  for i in range(num_averaging)])
+        trained = utils.ld_to_dl([train(config, seed_plus=1) for _ in range(num_averaging)])
         for k, v in trained.items():
             log.info(f"{k}: {float(np.mean(v))} +- {float(np.std(v))}")
         return trained

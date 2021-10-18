@@ -70,6 +70,7 @@ class StaticGraphModel(LightningModule):
                  lambda_proj: float,
                  learning_rate: float,
                  weight_decay: float,
+                 subname: str = "default",
                  given_datamodule: DyGraphDataModule = None):
         super().__init__()
         self.save_hyperparameters(ignore=["given_datamodule"])

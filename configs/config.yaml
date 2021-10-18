@@ -23,7 +23,7 @@ defaults:
 # learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
 work_dir: ${hydra:runtime.cwd}
 project_dir: ${work_dir}/..
-experiment_name: ${datamodule.dataset_name}/${model._target_}
+experiment_name: ${datamodule.dataset_name}/${model.subname}
 
 # path to folder with data
 dataset_path: /mnt/nas2/GNN-DATA/PYG/
