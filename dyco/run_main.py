@@ -23,11 +23,12 @@ from utils import make_deterministic_everything
 log = get_logger(__name__)
 
 
-def train(config: DictConfig) -> Optional[Union[float, Dict[str, float]]]:
+def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[str, float]]]:
     """Contains training pipeline.
     Instantiates all PyTorch Lightning objects from config.
     Args:
         config (DictConfig): Configuration composed by Hydra.
+        seed_plus: This value will be added to config.seed for multiruns.
     Returns:
         Optional[float]: Metric score for hyperparameter optimization.
         Optional[Dict[str, float]]: Metric score for averaging scores.
@@ -35,6 +36,7 @@ def train(config: DictConfig) -> Optional[Union[float, Dict[str, float]]]:
 
     # Set seed for random number generators in pytorch, numpy and python.random
     if "seed" in config:
+        config.seed += seed_plus
         seed_everything(config.seed, workers=True)
         make_deterministic_everything(config.seed)
 
@@ -140,10 +142,11 @@ def main(config: DictConfig):
 
     # Train model
     num_averaging: Optional[int] = config.get("num_averaging")
-    if num_averaging:
+    if num_averaging and config.get("averaging_metrics"):
         import utils
         import numpy as np
-        trained = utils.ld_to_dl([train(config) for _ in range(num_averaging)])
+        trained = utils.ld_to_dl([train(config, seed_plus=i)
+                                  for i in range(num_averaging)])
         for k, v in trained.items():
             log.info(f"{k}: {float(np.mean(v))} +- {float(np.std(v))}")
         return trained
