@@ -6,44 +6,49 @@
 # python run.py -m hparams_search=mnist_optuna experiment=example_simple logger=wandb
 
 defaults:
-  - override /hydra/sweeper: optuna
+  - optuna_tpe.yaml
+  - override /callbacks: checkpoint.yaml # If set no checkpoint, it cannot use the best model path
 
 # choose metric which will be optimized by Optuna
-optimized_metric: "valid/acc"
+optimized_metric: "test/acc"  # valid/acc
+
+# If set no, it will consume all your filesystem
+remove_best_model_ckpt: True
+
+# The number of runs to get average of metrics
+num_averaging: 3
+
+# Set optuna specific logger dirs
+logger:
+  tensorboard:
+    save_dir: "${project_dir}/logs_multi_tensorboard/"
+  csv:
+    save_dir: "${project_dir}/logs_multi_csv/"
 
 hydra:
   # here we define Optuna hyperparameter search
   # it optimizes for value returned from function with @hydra.main decorator
   # learn more here: https://hydra.cc/docs/next/plugins/optuna_sweeper
   sweeper:
-    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    storage: null
-    study_name: null
-    n_jobs: 1
+    study_name: ${experiment_name}
 
     # 'minimize' or 'maximize' the objective
     direction: maximize
 
     # number of experiments that will be executed
-    n_trials: 2
-
-    # choose Optuna hyperparameter sampler
-    # learn more here: https://optuna.readthedocs.io/en/stable/reference/samplers.html
-    sampler:
-      _target_: optuna.samplers.TPESampler
-      seed: 12345
-      consider_prior: true
-      prior_weight: 1.0
-      consider_magic_clip: true
-      consider_endpoints: false
-      n_startup_trials: 10
-      n_ei_candidates: 24
-      multivariate: false
-      warn_independent_sampling: true
+    n_trials: 40
 
     # define range of hyperparameters
+    # https://hydra.cc/docs/plugins/optuna_sweeper/
+    # https://github.com/facebookresearch/hydra/blob/02495f9c781615e2fe7ae5588e16f596fcec010c/plugins/hydra_optuna_sweeper/tests/test_optuna_sweeper_plugin.py#L49
     search_space:
-      model.learning_rate:
+      model.lambda_proj:
         type: float
-        low: 0.0001
-        high: 0.2
+        log: True
+        low: 1e-7
+        high: 0.1
+      model.weight_decay:
+        type: float
+        log: True
+        low: 1e-6
+        high: 1e-4

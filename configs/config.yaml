@@ -2,8 +2,9 @@
 
 # specify here default training configuration
 defaults:
+  - config_sub.yaml  # args that can be overridden by below yamls
   - datamodule: ogbn_arxiv.yaml
-  - model: static_graph_node.yaml
+  - model: static_graph_node.yaml  # static_graph_node, baseline_node
   - callbacks: default.yaml # set this to null if you don't want to use callbacks
   - logger: tensorboard.yaml # tensorboard.yaml, csv.yaml, many_loggers.yaml
   - trainer: default.yaml
@@ -28,15 +29,13 @@ experiment_name: ${datamodule.dataset_name}/${model.subname}
 # path to folder with data
 dataset_path: /mnt/nas2/GNN-DATA/PYG/
 
-# Averaging after multiruns
-num_averaging: 10
-
 # use `python run.py debug=true` for easy debugging!
 # this will run 1 train, val and test loop with only 1 batch
 # equivalent to running `python run.py trainer.fast_dev_run=true`
 # (this is placed here just for easier access from command line)
 debug: False
 debug_test: False
+debug_gpu: False
 
 # pretty print config at the start of the run using Rich library
 print_config: True
@@ -48,4 +47,4 @@ ignore_warnings: True
 # lightning chooses best model based on metric specified in checkpoint callback
 test_after_training: True
 
-seed: 10000
+seed: 10

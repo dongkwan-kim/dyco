@@ -5,9 +5,9 @@ defaults:
 
 use_projector: True
 lambda_proj: 0.00020206
-projected_channels: 96
-projector_infonce_temperature: 0.29529
-projector_readout_types: mean-max
+projected_channels: 64
+projector_infonce_temperature: 0.5
+projector_readout_types: mean
 
 use_predictor: True
 lambda_pred: 1.0

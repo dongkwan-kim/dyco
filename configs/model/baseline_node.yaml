@@ -4,10 +4,10 @@ defaults:
   - common_model.yaml
 
 use_projector: False
-lambda_proj: null
-projected_channels: null
-projector_infonce_temperature: null
-projector_readout_types: null
+lambda_proj: 0
+projected_channels: 0
+projector_infonce_temperature: 0
+projector_readout_types: ""
 
 use_predictor: True
 lambda_pred: 1.0
