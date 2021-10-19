@@ -63,6 +63,8 @@ def extras(config: DictConfig) -> None:
     # force debugger friendly configuration if <use_debug_any=True>
     if use_debug_any:
         log.info("Forcing debugger friendly configuration!")
+        if config.get("num_averaging") and config.get("num_averaging") > 1:
+            config.num_averaging = 2
         # Debuggers don't like GPUs or multiprocessing
         if config.trainer.get("gpus") and not config.get("debug_gpu"):
             config.trainer.gpus = 0
