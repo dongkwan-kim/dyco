@@ -212,10 +212,6 @@ class StaticGraphModel(LightningModule):
         # Dict of encoded_x, proj_x, log_prob, pos_edge_prob, neg_edge_prob
         return out
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(params=self.parameters(),
-                                lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
-
     def get_pred_loss_and_results(
             self,
             batch: BatchType,
@@ -275,12 +271,12 @@ class StaticGraphModel(LightningModule):
         :param batch_idx:
         :param use_predictor:
         :param use_projector:
-        :param cache_encoded_x:
+        :param cache_encoded_x: Will be used in EdgeLoader
         :return:
         """
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
-            **x_and_edge_kwargs,  # x, edge_index, (and rel, pred_edges)
+            **x_and_edge_kwargs,  # x, edge_index, (obj, sub) or (pos_edge, neg_edge)
             use_predictor=use_predictor,
             use_projector=use_projector,
             return_encoded_x=cache_encoded_x,
@@ -329,6 +325,12 @@ class StaticGraphModel(LightningModule):
         )
 
     def epoch_end(self, prefix, outputs, idx_of_hp_metric=None):
+        """
+        :param prefix: train, valid, test
+        :param outputs: EPOCH_OUTPUT of train, valid, test
+        :param idx_of_hp_metric: idx of self.h.metrics for assigning hp_metric
+        :return:
+        """
         self._encoded_x = None  # cache flush
 
         output_as_dict = ld_to_dl(outputs)
@@ -356,6 +358,10 @@ class StaticGraphModel(LightningModule):
 
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         self.epoch_end("test", outputs, idx_of_hp_metric=0)
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(params=self.parameters(),
+                                lr=self.h.learning_rate, weight_decay=self.h.weight_decay)
 
 
 if __name__ == '__main__':

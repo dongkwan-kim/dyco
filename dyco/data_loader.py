@@ -67,7 +67,9 @@ class SnapshotGraphLoader(DataLoader):
         if edge_split_idx is not None:  # for ogbl-collab
             data.train_edge_index = edge_split_idx["train"]["edge"].t()
             data.train_edge_year = edge_split_idx["train"]["year"]
+            # Add train_edge_index, train_neg_edge_index
             self.transform_per_snapshot = _add_trivial_negatives_to_snapshot
+            # Rename to pos_edge, neg_edge
             self.transform_after_collation = func_compose(
                 self.transform_after_collation, _rename_to_pos_and_neg_edge)
 
