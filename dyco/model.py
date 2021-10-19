@@ -117,7 +117,7 @@ class StaticGraphModel(LightningModule):
             self.projector = MLP(
                 num_layers=2,
                 in_channels=self.h.hidden_channels,
-                hidden_channels=self.h.hidden_channels,
+                hidden_channels=self.h.projected_channels,
                 out_channels=self.h.projected_channels,
                 activation=self.h.activation,
                 use_bn=self.h.use_bn,
