@@ -48,21 +48,23 @@ def extras(config: DictConfig) -> None:
         log.info("Disabling python warnings! <config.ignore_warnings=True>")
         warnings.filterwarnings("ignore")
 
+    use_debug_any = False
     # set <config.trainer.fast_dev_run=True> if <config.debug=True>
     if config.get("debug"):
         log.info("Running in debug mode! <config.debug=True>")
-        config.trainer.fast_dev_run = True
+        config.trainer.fast_dev_run = use_debug_any = True
 
-    if config.get("debug_test"):
-        log.info("Running in debug_test mode! <config.debug_test=True>")
+    if config.get("debug_test") or config.get("debug_gpu"):
+        log.info("Running in debug_* mode! <config.debug_*=True>")
         config.trainer.min_epochs = 0
         config.trainer.max_epochs = 1
+        use_debug_any = True
 
-    # force debugger friendly configuration if <config.trainer.fast_dev_run=True>
-    if config.trainer.get("fast_dev_run") or config.get("debug_test"):
-        log.info("Forcing debugger friendly configuration! <config.trainer.fast_dev_run=True>")
+    # force debugger friendly configuration if <use_debug_any=True>
+    if use_debug_any:
+        log.info("Forcing debugger friendly configuration!")
         # Debuggers don't like GPUs or multiprocessing
-        if config.trainer.get("gpus"):
+        if config.trainer.get("gpus") and not config.get("debug_gpu"):
             config.trainer.gpus = 0
         if config.datamodule.get("pin_memory"):
             config.datamodule.pin_memory = False
