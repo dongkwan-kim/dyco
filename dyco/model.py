@@ -14,7 +14,7 @@ from data_utils import BatchType
 from evaluator import VersatileGraphEvaluator
 from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
-from utils import try_getattr, ld_to_dl, iter_ft
+from utils import try_getattr, ld_to_dl, iter_ft, try_get_from_dict
 from run_utils import get_logger
 
 log = get_logger(__name__)
@@ -22,7 +22,7 @@ log = get_logger(__name__)
 
 def x_and_edge(batch) -> Dict[str, Tensor]:
     x = getattr(batch, "x", None)
-    edge_index = try_getattr(batch, ["adj_t", "edge_index"], None,
+    edge_index = try_getattr(batch, ["full_adj_t", "adj_t", "edge_index"], None,
                              iter_all=False, as_dict=False)[0]
     rel = getattr(batch, "rel", None)
     if rel is not None:
@@ -31,8 +31,9 @@ def x_and_edge(batch) -> Dict[str, Tensor]:
     else:
         pred_edges = try_getattr(batch, ["pos_edge", "neg_edge"], {},
                                  iter_all=True, as_dict=True)
-        pred_edges.pop("default", None)
-    return {"x": x, "edge_index": edge_index, "rel": rel, **pred_edges}
+        if "default" in pred_edges:
+            pred_edges = None
+    return {"x": x, "edge_index": edge_index, "rel": rel, "pred_edges": pred_edges}
 
 
 class StaticGraphModel(LightningModule):
@@ -180,14 +181,16 @@ class StaticGraphModel(LightningModule):
                 pred_edges: Dict[str, Tensor] = None
                 ) -> Dict[str, Tensor]:
 
-        encoder_kwargs = {}
+        edge_attr = None
         if encoded_x is None:
             x = self.node_emb(x)
             if rel is not None:
-                encoder_kwargs["edge_attr"] = self.edge_emb(rel)
-            x = self.encoder(x, edge_index, **encoder_kwargs)
+                edge_attr = self.edge_emb(rel)
+                x = self.encoder(x, edge_index, edge_attr=edge_attr)
+            else:
+                x = self.encoder(x, edge_index)
         else:
-            x, edge_attr = encoded_x, None
+            x = encoded_x
 
         out = dict()
         if return_encoded_x:
@@ -202,7 +205,7 @@ class StaticGraphModel(LightningModule):
             else:
                 # {pos_edge, neg_edge} or {obj, sub}
                 for pred_name, _pred_edge in pred_edges.items():
-                    if rel is not None:
+                    if rel is None:
                         _prob = self.predictor(x=x, edge_index=_pred_edge)
                     else:
                         # [ x[sub/obj] || rel ] --> obj/sub_log_prob
@@ -228,8 +231,8 @@ class StaticGraphModel(LightningModule):
             loss = self.predictor_loss(rets["y_pred"], rets["y_true"])
 
         # ogbl-collab: BCEWOLabelsLoss(pos_edge_prob, neg_edge_prob)
-        elif "pos_edge_prob" in out:
-            pos_edge_prob, neg_edge_prob = out["pos_edge_prob"], out["neg_edge_prob"]
+        elif "pos_edge_prob" in out or "neg_edge_prob" in out:
+            pos_edge_prob, neg_edge_prob = out.get("pos_edge_prob"), out.get("neg_edge_prob")
             rets = {"y_pred_pos": pos_edge_prob, "y_pred_neg": neg_edge_prob}
             loss = self.predictor_loss(pos_edge_prob, neg_edge_prob)
 
@@ -276,7 +279,9 @@ class StaticGraphModel(LightningModule):
         """
         x_and_edge_kwargs = x_and_edge(batch)
         out = self.forward(
-            **x_and_edge_kwargs,  # x, edge_index, (obj, sub) or (pos_edge, neg_edge)
+            # x, edge_index, rel, pred_edges {(obj, sub) or (pos_edge, neg_edge)}
+            **x_and_edge_kwargs,
+            encoded_x=self._encoded_x,
             use_predictor=use_predictor,
             use_projector=use_projector,
             return_encoded_x=cache_encoded_x,
@@ -342,7 +347,7 @@ class StaticGraphModel(LightningModule):
 
         eval_rets = self.evaluator.eval(input_dict=dict(iter_ft(
             output_as_dict.items(),
-            transform=lambda kv: (kv[0], torch.cat(kv[1])),
+            transform=lambda kv: (kv[0], torch.cat([o for o in kv[1] if o is not None])),
             condition=lambda kv: ("loss" not in kv[0]))))
         for i, (metric, value) in enumerate(eval_rets.items()):
             self.log(f"{prefix}/{metric}", value, prog_bar=True)

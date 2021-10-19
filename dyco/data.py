@@ -236,9 +236,9 @@ if __name__ == '__main__':
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
     # BitcoinOTC
-    NAME = "ogbn-arxiv"
+    NAME = "ogbl-collab"
     LOADER = "SnapshotGraphLoader"  # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
-    EVAL_LOADER = "NoLoader"  # + None
+    EVAL_LOADER = "EdgeLoader"  # + None
     USE_TEMPORAL_DATA = False
 
     if LOADER == "EdgeLoader" or EVAL_LOADER == "EdgeLoader":

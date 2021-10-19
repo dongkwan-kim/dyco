@@ -1,5 +1,6 @@
 import time
 import random
+from collections import namedtuple
 from functools import reduce
 from pprint import pprint
 from typing import Dict, Any, List, Tuple, Optional, Callable, Union
@@ -332,7 +333,7 @@ def mean_std(values: Union[np.ndarray, torch.Tensor, List]) -> Tuple[float, floa
 
 if __name__ == '__main__':
 
-    METHOD = "iter_ft"
+    METHOD = "remove_none"
 
     from pytorch_lightning import seed_everything
 
@@ -344,6 +345,14 @@ if __name__ == '__main__':
             transform=lambda kv: kv[1] + "/p",
             condition=lambda kv: kv[0] % 2 == 0,
         )))
+
+    elif METHOD == "try_getattr":
+        Point = namedtuple('Point', ['x', 'y'])
+        p = Point(x=11, y=22)
+        pprint(try_getattr(p, ["x", "z", "y"]))
+
+    elif METHOD == "try_get_from_dict":
+        pprint(try_get_from_dict({"x": 1, "y": 2}, ["x", "z", "y"]))
 
     elif METHOD == "get_log_func":
         print_red = get_log_func(cprint, color="red")

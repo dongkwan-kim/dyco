@@ -133,7 +133,7 @@ def get_dynamic_graph_dataset(path, name: str, transform=None, pre_transform=Non
 
 if __name__ == "__main__":
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
-    NAME = "SingletonICEWS18"
+    NAME = "ogbl-collab"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     #   TemporalData(dst=[157474], msg=[157474, 172], src=[157474], t=[157474], y=[157474])
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
@@ -207,5 +207,7 @@ if __name__ == "__main__":
         _neg_test_edge = _split_edge["test"]["edge_neg"]
         assert _pos_train_edge.size() == torch.Size([1179052, 2])
         assert _pos_train_year.size() == torch.Size([1179052])
+        assert _pos_valid_edge.size() == torch.Size([60084, 2])
+        assert _neg_valid_edge.size() == torch.Size([100000, 2])
         assert torch.unique(_pos_train_edge).size() == torch.unique(_data.edge_index).size()
         assert torch.allclose(_pos_train_edge.float().std(), _dataset[0].edge_index.float().std())

@@ -112,12 +112,19 @@ class BCEWOLabelsLoss(nn.Module):
         self.with_logits = with_logits
         self.eps = EPSILON()
 
+    @staticmethod
+    def sigmoid_safe(x):
+        return torch.sigmoid(x) if x is not None else None
+
     def forward(self, pos_preds: Tensor, neg_preds: Tensor):
+        loss = 0
         if self.with_logits:
-            pos_preds, neg_preds = torch.sigmoid(pos_preds), torch.sigmoid(neg_preds)
-        pos_loss = -torch.log(pos_preds + self.eps).mean()
-        neg_loss = -torch.log(1 - neg_preds + self.eps).mean()
-        return pos_loss + neg_loss
+            pos_preds, neg_preds = self.sigmoid_safe(pos_preds), self.sigmoid_safe(neg_preds)
+        if pos_preds is not None:
+            loss += -torch.log(pos_preds + self.eps).mean()
+        if neg_preds is not None:
+            loss += -torch.log(1 - neg_preds + self.eps).mean()
+        return loss
 
     def __repr__(self):
         return f"{self.__class__.__name__}(with_logits={self.with_logits})"

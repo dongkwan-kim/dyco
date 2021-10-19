@@ -141,6 +141,9 @@ class VersatileGraphEvaluator:
         if "y_pred" in input_dict and input_dict["y_pred"].dim() == 2:  # ogbn-arxiv
             input_dict["y_pred"] = input_dict["y_pred"].argmax(dim=-1).view(-1, 1)
             input_dict["y_true"] = input_dict["y_true"].view(-1, 1)
+        if "y_pred_pos" in input_dict and input_dict["y_pred_pos"].dim() == 2:  # ogbl-collab
+            input_dict["y_pred_pos"] = input_dict["y_pred_pos"].squeeze()
+            input_dict["y_pred_neg"] = input_dict["y_pred_neg"].squeeze()
         return input_dict
 
     @staticmethod
