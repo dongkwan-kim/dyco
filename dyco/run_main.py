@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Any
 
 import hydra
 from omegaconf import DictConfig
@@ -23,12 +23,12 @@ from utils import make_deterministic_everything
 log = get_logger(__name__)
 
 
-def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[str, float]]]:
+def train(config: DictConfig, seed_forced: int = None) -> Dict[str, Any]:
     """Contains training pipeline.
     Instantiates all PyTorch Lightning objects from config.
     Args:
         config (DictConfig): Configuration composed by Hydra.
-        seed_plus: This value will be added to config.seed for multiruns.
+        seed_forced: This value will be replaced for config.seed for multiruns.
     Returns:
         Optional[float]: Metric score for hyperparameter optimization.
         Optional[Dict[str, float]]: Metric score for averaging scores.
@@ -36,7 +36,8 @@ def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[
 
     # Set seed for random number generators in pytorch, numpy and python.random
     if "seed" in config:
-        config.seed += seed_plus
+        if seed_forced is not None:
+            config.seed = seed_forced
         seed_everything(config.seed, workers=True)
         make_deterministic_everything(config.seed)
 
@@ -90,13 +91,9 @@ def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[
     trainer.fit(model=model, datamodule=datamodule)
 
     # Evaluate model on test set, using the best model achieved during training
-    test_results = None
     if config.get("test_after_training") and not config.trainer.get("fast_dev_run"):
         log.info("Starting testing!")
-        test_results = trainer.test()
-        if config.get("remove_best_model_ckpt") and trainer.checkpoint_callback.best_model_path:
-            os.remove(trainer.checkpoint_callback.best_model_path)
-            log.info(f"Removed: {trainer.checkpoint_callback.best_model_path}")
+        trainer.test()
 
     # Make sure everything closed properly
     log.info("Finalizing!")
@@ -111,15 +108,11 @@ def train(config: DictConfig, seed_plus: int = 0) -> Optional[Union[float, Dict[
 
     # Print path to best checkpoint
     log.info(f"Best checkpoint path:\n{trainer.checkpoint_callback.best_model_path}")
+    if config.get("remove_best_model_ckpt") and trainer.checkpoint_callback.best_model_path:
+        os.remove(trainer.checkpoint_callback.best_model_path)
+        log.info(f"Removed: {trainer.checkpoint_callback.best_model_path}")
 
-    # Return metric score for hyperparameter optimization
-    optimized_metric = config.get("optimized_metric")
-    if optimized_metric:
-        return trainer.callback_metrics[optimized_metric]
-
-    if test_results:
-        # test_results is List[dict], but the length is 1.
-        return test_results[-1]
+    return trainer.callback_metrics
 
 
 @hydra.main(config_path="../configs/", config_name="config.yaml")
@@ -128,6 +121,7 @@ def main(config: DictConfig):
     # Imports should be nested inside @hydra.main to optimize tab completion
     # Read more here: https://github.com/facebookresearch/hydra/issues/934
     import run_utils
+    import utils
 
     # A couple of optional utilities:
     # - disabling python warnings
@@ -140,18 +134,27 @@ def main(config: DictConfig):
     if config.get("print_config"):
         run_utils.print_config(config, resolve=True)
 
-    # Train model
-    num_averaging: Optional[int] = config.get("num_averaging")
-    if num_averaging and not config.get("optimized_metric"):
-        log.info(f"Averaging test results by {num_averaging} runs")
-        import utils
-        import numpy as np
-        trained = utils.ld_to_dl([train(config, seed_plus=1) for _ in range(num_averaging)])
-        for k, v in trained.items():
-            log.info(f"{k}: {float(np.mean(v))} +- {float(np.std(v))}")
-        return trained
-    else:
-        return train(config)
+    # Train model, if num_averaging is given, run multiple `train`.
+    num_averaging: Optional[int] = config.get("num_averaging", default_value=1)
+    seed = config.seed
+    trained_metrics = []
+    for run_no in range(num_averaging):
+        log.info(f"Running experiment {run_no + 1} out of {num_averaging}")
+        seed_forced = (seed + run_no) if seed is not None else seed
+        trained_metrics.append(train(config, seed_forced=seed_forced))
+    trained_metrics = utils.ld_to_dl(trained_metrics)
+
+    # Log the summary
+    log.info("--- Summary ({} runs) ---".format(num_averaging))
+    for m, vs in trained_metrics.items():
+        if m.startswith("test"):
+            log.info("{}: {:.5f} +- {:.5f}".format(m, *utils.mean_std(vs)))
+
+    optimized_metric = config.get("optimized_metric")
+    if optimized_metric:
+        om, _ = utils.mean_std(trained_metrics[optimized_metric])
+        log.info("Return {}: {:.5f}".format(optimized_metric, om))
+        return om
 
 
 if __name__ == "__main__":

@@ -322,6 +322,14 @@ def idx_to_mask(idx_dict: Dict[Any, Tensor], num_nodes: int):
     return mask_dict
 
 
+def mean_std(values: Union[np.ndarray, torch.Tensor, List]) -> Tuple[float, float]:
+    if isinstance(values, torch.Tensor):
+        values = values.float().tolist()
+    mean = np.mean(values)
+    std = np.std(values)
+    return float(mean), float(std)
+
+
 if __name__ == '__main__':
 
     METHOD = "iter_ft"
