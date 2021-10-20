@@ -27,17 +27,13 @@ class CoarseSnapshotData(Data):
 
     def __init__(self, x: OptTensor = None, edge_index: OptTensor = None,
                  edge_attr: OptTensor = None, y: OptTensor = None, pos: OptTensor = None,
-                 increase_num_nodes_for_index=None, **kwargs):
-        super().__init__(x, edge_index, edge_attr, y, pos,
-                         increase_num_nodes_for_index=increase_num_nodes_for_index,
-                         **kwargs)
+                 **kwargs):
+        super().__init__(x, edge_index, edge_attr, y, pos, **kwargs)
 
     def __inc__(self, key, value, *args, **kwargs):
-        if exist_attr(self, "increase_num_nodes_for_index") and self.increase_num_nodes_for_index:
-            # original code: self.num_nodes if bool(re.search("(index|face)", key)) else 0
-            return super(CoarseSnapshotData, self).__inc__(key, value, *args, **kwargs)
-        else:
-            return 0
+        # * Very IMPORTANT *
+        # original code: self.num_nodes if bool(re.search("(index|face)", key)) else 0
+        return 0
 
     def is_num_nodes_inferred_by_edge_index(self):
         for k in ["__num_nodes__", "x", "pos", "normal", "batch", "adj", "adj_t", "face"]:
@@ -89,49 +85,47 @@ class CoarseSnapshotData(Data):
                         ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
         """
         assert isinstance(snapshot_sublist[0], CoarseSnapshotData)
-        snapshot_sublist: List[CoarseSnapshotData]
+        snapshot_sublist: List[CoarseSnapshotData] = sorted(snapshot_sublist, key=lambda d: d.t)
         pernode_attrs = pernode_attrs or dict()
         if "x" in pernode_attrs:
             num_nodes = pernode_attrs["x"].size(0)
 
-        # Relabel edge_index of SnapshotData in snapshot_sublist,
-        # and put pernode_attrs (e.g., x and y) to SnapshotData,
-        # finally construct the Batch object with them.
         mask = torch.zeros(num_nodes, dtype=torch.bool)
         assoc = torch.full((num_nodes,), -1, dtype=torch.long)
+
+        # Construct assoc with an increasing order by time: 1971, ..., 2020
+        start = 0
+        for b_no, data in enumerate(snapshot_sublist):
+            existing_nodes = data.edge_index.view(-1)
+            mask[existing_nodes] = 1
+            mask[assoc >= 0] = 0  # Unmask pre-allocated nodes by previous events.
+            num_added_nodes = mask.sum().item()
+
+            # Masked nodes start with the accumulated number of nodes until T,
+            # and the length will be the number of newly added nodes.
+            assoc[mask] = torch.arange(start, start + num_added_nodes)
+            start += num_added_nodes
+
+            # Distribute pernode attributes, such as x, y, etc.
+            for attr_name, pernode_tensor in pernode_attrs.items():
+                setattr(data, attr_name, pernode_tensor[mask])
+
+            # Re-init mask only, not assoc
+            mask[:] = 0
+
+        # Relabel *_index
         data_list = []
         for data in snapshot_sublist:
-
-            existing_nodes = data.edge_index.view(-1)
-
-            # Relabeling
-            mask[existing_nodes] = 1
-            snapshot_num_nodes = mask.sum()
-            assoc[mask] = torch.arange(snapshot_num_nodes)
             for k in data.keys:
                 if "index" in k:  # *_edge_index
                     # e.g., data.edge_index = assoc[data.edge_index]
                     setattr(data, k, assoc[getattr(data, k)])
 
-            # Distribute pernode attributes, such as x, y, etc.
-            for attr_name, pernode_tensor in pernode_attrs.items():
-                masked_tensor = pernode_tensor[mask]
-                setattr(data, attr_name, masked_tensor)
-
-            # *very* important for the batch construction
-            data.increase_num_nodes_for_index = True
-
             # Transform data if necessary
-            data_list.append(data if transform_per_snapshot is None
-                             else transform_per_snapshot(data))
+            data if transform_per_snapshot is None else transform_per_snapshot(data)
+            data_list.append(data)
 
-            # re-init mask and assoc
-            mask[:] = 0
-            assoc[:] = -1
-
-        b = Batch.from_data_list(
-            snapshot_sublist,
-            exclude_keys=["increase_num_nodes_for_index"])
+        b = Batch.from_data_list(data_list)
 
         return b if transform_per_batch is None else transform_per_batch(b)
 
