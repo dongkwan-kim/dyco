@@ -9,10 +9,10 @@ dataset_path: ${dataset_path} # dataset_path is specified in config.yaml
 
 # SnapshotGraphLoader, TemporalDataLoader, EdgeLoader, NoLoader
 dataloader_type: SnapshotGraphLoader
-eval_dataloader_type: NoLoader
+eval_dataloader_type: EdgeLoader
 
-batch_size: 8
-eval_batch_size: # None
+batch_size: 55  # max 55
+eval_batch_size: 65536 # None
 
 step_size: 1
 use_temporal_data: False
@@ -23,7 +23,7 @@ num_workers: 0
 
 # Will be inherited to the model
 _predictor_type: Edge/HadamardProduct
-_metrics: ["hits@10", "hits@50", "hits@100"]
+_metrics: ["hits@50", "hits@100"]
 
 # Will be inherited to the trainer
 _max_epochs: 700

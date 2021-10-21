@@ -4,9 +4,10 @@ defaults:
   - common_model.yaml
 
 use_projector: True
-lambda_proj: 0.00020206
-projected_channels: 64
-projector_infonce_temperature: 0.5
+use_projector_bn: False
+lambda_proj: 0.00028225
+projected_channels: 128
+projector_infonce_temperature: 0.64969
 projector_readout_types: mean
 
 use_predictor: True
@@ -15,7 +16,9 @@ predictor_type: ${datamodule._predictor_type}
 metrics: ${datamodule._metrics}
 
 learning_rate: 0.01
-weight_decay: 0.0000049316
-dropout_channels: 0.15
+weight_decay: 0.000013865
+dropout_channels: 0.5
 
-subname: ours
+subname: ours-no-bn-proj
+
+pretraining_epoch: 0
