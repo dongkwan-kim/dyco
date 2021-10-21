@@ -61,6 +61,7 @@ class StaticGraphModel(LightningModule):
                  dropout_channels: float,
                  layer_kwargs: Dict[str, Any],
                  use_projector: bool,
+                 use_projector_bn: bool,
                  projected_channels: int,
                  projector_infonce_temperature: float,
                  projector_readout_types: str,
@@ -72,6 +73,7 @@ class StaticGraphModel(LightningModule):
                  learning_rate: float,
                  weight_decay: float,
                  subname: str = "default",
+                 pretraining_epoch: Optional[int] = None,
                  given_datamodule: DyGraphDataModule = None):
         super().__init__()
         self.save_hyperparameters(ignore=["given_datamodule"])
@@ -121,7 +123,7 @@ class StaticGraphModel(LightningModule):
                 hidden_channels=self.h.projected_channels,
                 out_channels=self.h.projected_channels,
                 activation=self.h.activation,
-                use_bn=self.h.use_bn,
+                use_bn=self.h.use_projector_bn,
                 dropout=self.h.dropout_channels,
                 activate_last=False,
             )
@@ -296,7 +298,9 @@ class StaticGraphModel(LightningModule):
 
         loss_parts, total_loss = {}, 0
         if pred_loss is not None:
-            total_loss += self.h.lambda_pred * pred_loss
+            if self.h.pretraining_epoch is None or not self.training or (
+                    self.current_epoch >= self.h.pretraining_epoch):
+                total_loss += self.h.lambda_pred * pred_loss
             loss_parts["pred_loss"] = pred_loss
         if proj_loss is not None:
             total_loss += self.h.lambda_proj * proj_loss
