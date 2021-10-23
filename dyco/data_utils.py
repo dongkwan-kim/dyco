@@ -3,6 +3,7 @@ from pprint import pprint
 from typing import List, Dict, Union, Tuple, Callable
 
 import torch
+from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from torch import Tensor
 from torch_geometric.data import Batch, Data, TemporalData
 from torch_geometric.transforms import ToSparseTensor, ToUndirected, Compose
@@ -11,8 +12,7 @@ from torch_geometric.utils import to_undirected, add_self_loops
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_sparse import SparseTensor
 
-from utils import exist_attr, torch_setdiff1d
-
+from utils import exist_attr, torch_setdiff1d, ld_to_dl
 
 BatchType = Union[Batch, Data]
 
@@ -311,3 +311,22 @@ def add_trivial_neg_edges(pos_edge_index, num_nodes) -> Tuple[Tensor, Tensor]:
     # https://github.com/snap-stanford/ogb/blob/master/examples/linkproppred/collab/gnn.py#L114
     neg_edge_index = torch.randint(0, num_nodes, pos_edge_index.size(), dtype=torch.long)
     return pos_edge_index, neg_edge_index
+
+
+def replace_y_pred_neg_from_train_to_valid(model, prefix, outputs: EPOCH_OUTPUT) -> EPOCH_OUTPUT:
+    if prefix == "valid":  # valid first
+        model._cached_outputs = outputs
+        return outputs
+
+    elif prefix == "train":  # then train
+        valid_outputs_as_dict = ld_to_dl(model._cached_outputs)
+        model._cached_outputs = None
+
+        train_outputs_as_dict = ld_to_dl(outputs)
+        train_outputs_as_dict["y_pred_neg"] = valid_outputs_as_dict["y_pred_neg"]
+
+        model.epoch_end("train", train_outputs_as_dict)
+        return outputs  # for valid
+
+    else:
+        raise ValueError("Wrong prefix: {}".format(prefix))

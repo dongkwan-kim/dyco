@@ -10,7 +10,7 @@ from torch import Tensor
 from torch_geometric.data import Batch
 
 from data import DyGraphDataModule
-from data_utils import BatchType
+from data_utils import BatchType, replace_y_pred_neg_from_train_to_valid
 from evaluator import VersatileGraphEvaluator
 from model_loss import BCEWOLabelsLoss, InfoNCEWithReadoutLoss
 from model_utils import GraphEncoder, VersatileEmbedding, MLP, EdgePredictor, Readout
@@ -74,6 +74,7 @@ class StaticGraphModel(LightningModule):
                  weight_decay: float,
                  subname: str = "default",
                  pretraining_epoch: Optional[int] = None,
+                 func_for_train_and_valid_outputs: Optional[str] = None,
                  given_datamodule: DyGraphDataModule = None):
         super().__init__()
         self.save_hyperparameters(ignore=["given_datamodule"])
@@ -168,6 +169,7 @@ class StaticGraphModel(LightningModule):
                 self.predictor_loss = nn.CrossEntropyLoss()
 
         self._encoded_x: Optional[Tensor] = None
+        self._cached_outputs: Optional[EPOCH_OUTPUT] = None
 
         self.evaluator = VersatileGraphEvaluator(
             name=self.dh.dataset_name,
@@ -333,16 +335,22 @@ class StaticGraphModel(LightningModule):
             cache_encoded_x=(eval_dataloader_type == "EdgeLoader"),
         )
 
-    def epoch_end(self, prefix, outputs, idx_of_hp_metric=None):
+    def func_for_train_and_valid_outputs(self, prefix, outputs: EPOCH_OUTPUT) -> EPOCH_OUTPUT:
+        if self.h.func_for_train_and_valid_outputs is not None:
+            # e.g., replace_y_pred_neg_from_train_to_valid
+            _func = eval(self.h.func_for_train_and_valid_outputs)
+            return _func(self, prefix, outputs)
+        else:
+            return outputs
+
+    def epoch_end(self, prefix, output_as_dict, idx_of_hp_metric=None):
         """
         :param prefix: train, valid, test
-        :param outputs: EPOCH_OUTPUT of train, valid, test
+        :param output_as_dict: dict version of EPOCH_OUTPUT of train, valid, test
         :param idx_of_hp_metric: idx of self.h.metrics for assigning hp_metric
         :return:
         """
         self._encoded_x = None  # cache flush
-
-        output_as_dict = ld_to_dl(outputs)
 
         for loss_name, loss_val in iter_ft(output_as_dict.items(),
                                            transform=lambda kv: (kv[0], torch.stack(kv[1]).mean()),
@@ -360,13 +368,15 @@ class StaticGraphModel(LightningModule):
                 log.info(f"Log '{metric}' as hp_metric")
 
     def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self.epoch_end("train", outputs)
+        outputs = self.func_for_train_and_valid_outputs("train", outputs)
+        self.epoch_end("train", ld_to_dl(outputs))
 
     def validation_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self.epoch_end("valid", outputs)
+        outputs = self.func_for_train_and_valid_outputs("valid", outputs)
+        self.epoch_end("valid", ld_to_dl(outputs))
 
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        self.epoch_end("test", outputs, idx_of_hp_metric=0)
+        self.epoch_end("test", ld_to_dl(outputs), idx_of_hp_metric=0)
 
     def configure_optimizers(self):
         return torch.optim.Adam(params=self.parameters(),
