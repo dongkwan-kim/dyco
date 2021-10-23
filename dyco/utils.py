@@ -333,7 +333,7 @@ def mean_std(values: Union[np.ndarray, torch.Tensor, List]) -> Tuple[float, floa
 
 if __name__ == '__main__':
 
-    METHOD = "remove_none"
+    METHOD = "ld_to_dl"
 
     from pytorch_lightning import seed_everything
 
@@ -345,6 +345,10 @@ if __name__ == '__main__':
             transform=lambda kv: kv[1] + "/p",
             condition=lambda kv: kv[0] % 2 == 0,
         )))
+
+    elif METHOD == "ld_to_dl":
+        print(ld_to_dl([{}]))
+        print(ld_to_dl([{"x": 1}, {"x": 2}]))
 
     elif METHOD == "try_getattr":
         Point = namedtuple('Point', ['x', 'y'])
