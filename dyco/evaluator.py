@@ -174,34 +174,39 @@ class VersatileGraphEvaluator:
 
 
 if __name__ == '__main__':
+
+    DATA = "ogbl-collab"
+
     import numpy as np
     import torch
 
     torch.manual_seed(0)
     np.random.seed(0)
 
-    _evaluator = VersatileGraphEvaluator(
-        name='ogbl-collab',
-        metrics=["hits@10", "hits@50", "hits@100"],
-    )
-    y_pred_pos = torch.tensor(np.random.randn(1000, ))
-    y_pred_neg = torch.tensor(np.random.randn(1000))
-    result = _evaluator.eval({'y_pred_pos': y_pred_pos, 'y_pred_neg': y_pred_neg})
-    cprint(_evaluator, "yellow")
-    pprint(result)
+    if DATA == "ogbl-collab":
+        _evaluator = VersatileGraphEvaluator(
+            name='ogbl-collab',
+            metrics=["hits@50", "hits@100"],
+        )
+        y_pred_pos = torch.tensor(np.random.randn(100, ))
+        y_pred_neg = torch.tensor(np.random.randn(70, ))
+        result = _evaluator.eval({'y_pred_pos': y_pred_pos, 'y_pred_neg': y_pred_neg})
+        cprint(_evaluator, "yellow")
+        pprint(result)
 
-    _evaluator = VersatileGraphEvaluator(
-        name='SingletonGDELT',
-        metrics=["mrr", "hits@1", "hits@3", "hits@10"],
-    )
-    N, C = 100, 7
-    _obj_pred = torch.randn((N, C))
-    _obj_node = torch.randint(C, (N,))
-    _sub_pred = torch.randn((N, C))
-    _sub_node = torch.randint(C, (N,))
-    result = _evaluator.eval({
-        "obj_pred": _obj_pred, "obj_node": _obj_node,
-        "sub_pred": _sub_pred, "sub_node": _sub_node,
-    })
-    cprint(_evaluator, "yellow")
-    pprint(result)
+    elif DATA == "SingletonGDELT":
+        _evaluator = VersatileGraphEvaluator(
+            name="SingletonGDELT",
+            metrics=["mrr", "hits@1", "hits@3", "hits@10"],
+        )
+        N, C = 100, 7
+        _obj_pred = torch.randn((N, C))
+        _obj_node = torch.randint(C, (N,))
+        _sub_pred = torch.randn((N, C))
+        _sub_node = torch.randint(C, (N,))
+        result = _evaluator.eval({
+            "obj_pred": _obj_pred, "obj_node": _obj_node,
+            "sub_pred": _sub_pred, "sub_node": _sub_node,
+        })
+        cprint(_evaluator, "yellow")
+        pprint(result)
