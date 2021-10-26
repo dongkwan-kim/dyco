@@ -167,6 +167,7 @@ class DyGraphDataModule(LightningDataModule):
                 step_size=self.h.step_size,
                 shuffle=True,
                 num_workers=self.h.num_workers,
+                transform_after_collation=T.ToSparseTensor(fill_cache=False) if self.h.use_sparse_tensor else None,
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes
             )
         elif self.h.dataloader_type == "EdgeLoader":
@@ -195,6 +196,7 @@ class DyGraphDataModule(LightningDataModule):
                 step_size=self.h.step_size,
                 shuffle=False,
                 num_workers=self.h.num_workers,
+                transform_after_collation=T.ToSparseTensor(fill_cache=False) if self.h.use_sparse_tensor else None,
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes, ...
             )
         elif dataloader_type == "NoLoader":
