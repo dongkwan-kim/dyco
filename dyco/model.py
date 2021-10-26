@@ -350,6 +350,7 @@ class StaticGraphModel(LightningModule):
         :param idx_of_hp_metric: idx of self.h.metrics for assigning hp_metric
         :return:
         """
+        del self._encoded_x
         self._encoded_x = None  # cache flush
 
         for loss_name, loss_val in iter_ft(output_as_dict.items(),
