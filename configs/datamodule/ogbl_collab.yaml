@@ -11,7 +11,7 @@ dataset_path: ${dataset_path} # dataset_path is specified in config.yaml
 dataloader_type: SnapshotGraphLoader
 eval_dataloader_type: EdgeLoader
 
-batch_size: 55  # max 55
+batch_size: 19  # max 55
 eval_batch_size: 65536 # None
 
 step_size: 1
@@ -26,4 +26,5 @@ _predictor_type: Edge/HadamardProduct
 _metrics: ["hits@50", "hits@100"]
 
 # Will be inherited to the trainer
-_max_epochs: 700
+_max_epochs: 1800
+_gradient_clip_val: 1.0

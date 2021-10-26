@@ -27,3 +27,4 @@ _metrics: ["acc"]
 
 # Will be inherited to the trainer
 _max_epochs: 700
+_gradient_clip_val: 0.0

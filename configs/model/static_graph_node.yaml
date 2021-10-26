@@ -5,9 +5,9 @@ defaults:
 
 use_projector: True
 use_projector_bn: False
-lambda_proj: 0.00028225
-projected_channels: 128
-projector_infonce_temperature: 0.64969
+lambda_proj: 0.035157
+projected_channels: 100
+projector_infonce_temperature: 0.74460
 projector_readout_types: mean
 
 use_predictor: True
@@ -16,9 +16,9 @@ predictor_type: ${datamodule._predictor_type}
 metrics: ${datamodule._metrics}
 
 learning_rate: 0.01
-weight_decay: 0.000013865
+weight_decay: 0.0000025966
 dropout_channels: 0.5
 
-subname: ours-no-bn-proj
+subname: ours
 
 pretraining_epoch: 0
