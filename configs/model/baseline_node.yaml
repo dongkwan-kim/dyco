@@ -16,7 +16,7 @@ predictor_type: ${datamodule._predictor_type}
 metrics: ${datamodule._metrics}
 
 learning_rate: 0.01
-weight_decay: 0.000013865
-dropout_channels: 0.45
+weight_decay: 0.00001284205984
+dropout_channels: 0.5
 
 subname: baseline
