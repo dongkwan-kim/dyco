@@ -185,6 +185,7 @@ class DyGraphDataModule(LightningDataModule):
 
     def _eval_loader(self, eval_data: Union[Data, TemporalData], stage=None):
         dataloader_type = (self.h.eval_dataloader_type or self.h.dataloader_type)
+        batch_size = (self.h.eval_batch_size or self.h.batch_size)
         if self.h.use_temporal_data and dataloader_type == "TemporalDataLoader":
             # Implement https://github.com/rusty1s/pytorch_geometric/blob/master/examples/tgn.py
             raise NotImplementedError
@@ -192,7 +193,7 @@ class DyGraphDataModule(LightningDataModule):
             loader = SnapshotGraphLoader(
                 data=eval_data,
                 loading_type=SnapshotGraphLoader.get_loading_type(self.h.dataset_name),
-                batch_size=(self.h.eval_batch_size or self.h.batch_size),
+                batch_size=batch_size,
                 step_size=self.h.step_size,
                 shuffle=False,
                 num_workers=self.h.num_workers,
@@ -212,7 +213,7 @@ class DyGraphDataModule(LightningDataModule):
             else:  # test
                 kwargs = try_getattr(eval_data, ["x", "full_adj_t", "full_edge_index"])
 
-            loader = EdgeLoader(batch_size=self.h.batch_size,
+            loader = EdgeLoader(batch_size=batch_size,
                                 pos_edge_index=pos_valid_edge, neg_edge_index=neg_valid_edge,
                                 num_nodes=self.num_nodes,
                                 additional_kwargs=kwargs, batch_idx_to_add_kwargs=0,
