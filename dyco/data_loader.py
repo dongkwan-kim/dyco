@@ -48,7 +48,7 @@ class SnapshotGraphLoader(DataLoader):
                  follow_batch=None, exclude_keys=None,
                  transform_after_collation=None,
                  snapshot_dir="./", num_nodes=None,
-                 edge_split_idx=None,
+                 edge_split_idx=None, edge_batch_size=None,
                  **kwargs):
 
         self._data = data
@@ -62,8 +62,9 @@ class SnapshotGraphLoader(DataLoader):
 
         self.transform_after_collation: Callable[[Batch], Batch] = transform_after_collation
         self.snapshot_dir = snapshot_dir
-
         self.transform_per_snapshot: Optional[Callable[[CoarseSnapshotData], CoarseSnapshotData]] = None
+
+        self.edge_batch_size = edge_batch_size
         if edge_split_idx is not None:  # for ogbl-collab
             data.train_edge_index = edge_split_idx["train"]["edge"].t()
             data.train_edge_year = edge_split_idx["train"]["year"]
@@ -139,6 +140,22 @@ class SnapshotGraphLoader(DataLoader):
     @property
     def snapshot_path(self):
         return os.path.join(self.snapshot_dir, "snapshots.pt")
+
+    def __iter__(self):
+        __iter__ = super().__iter__()
+        if self.edge_batch_size is None:
+            for idx, elem in enumerate(__iter__):
+                yield elem
+        else:
+            for idx, elem in enumerate(__iter__):
+                edge_loader = EdgeLoader(
+                    batch_size=self.edge_batch_size,
+                    pos_edge_index=elem.pos_edge.t(),
+                    neg_edge_index=elem.neg_edge.t())
+                for edge_batch in edge_loader:
+                    elem.pos_edge = edge_batch.pos_edge
+                    elem.neg_edge = edge_batch.neg_edge
+                    yield elem
 
     def __collate__(self, index_list) -> Batch:
         # Construct (low, high) indices per batch
@@ -238,7 +255,7 @@ class EdgeLoader:
                  num_nodes=None, additional_kwargs: Dict = None,
                  batch_idx_to_add_kwargs: Union[str, int] = "all",
                  shuffle=False, **kwargs):
-        self.num_nodes = num_nodes
+        self.num_nodes = num_nodes  # for _add_trivial_negatives
         self.additional_kwargs = additional_kwargs or {}
         self.batch_idx_to_add_kwargs = batch_idx_to_add_kwargs
         assert batch_idx_to_add_kwargs == "all" or isinstance(batch_idx_to_add_kwargs, int)
@@ -300,7 +317,7 @@ if __name__ == "__main__":
 
     PATH = "/mnt/nas2/GNN-DATA/PYG/"
     NAME = "ogbl-collab"
-    LOADER = "EdgeLoader"
+    LOADER = "SnapshotGraphLoader"
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -321,13 +338,14 @@ if __name__ == "__main__":
         _loader = SnapshotGraphLoader(
             _data,
             loading_type=SnapshotGraphLoader.get_loading_type(NAME),
-            batch_size=3, step_size=4,
+            batch_size=3, step_size=1,
             **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
         )
+        cprint("SnapshotGraphLoader wo/ edge_batch_size", "green")
         for i, _batch in enumerate(tqdm(_loader)):
             # e.g., Batch(batch=[26709], edge_index=[2, 48866], ptr=[4], t=[3], x=[26709, 128], y=[26709, 1])
             if i < 2:
-                print(f"\n ei {_batch.edge_index.min().item()} -- {_batch.edge_index.max().item()}", end=" / ")
+                print(f"ei {_batch.edge_index.min().item()} -- {_batch.edge_index.max().item()}", end=" / ")
                 try:
                     print(f"pe {_batch.pos_edge.min().item()} -- {_batch.pos_edge.max().item()}",
                           end=" / ")
@@ -336,7 +354,24 @@ if __name__ == "__main__":
                 print("t =", _batch.t, end=" / ")
                 cprint(_batch, "yellow")
             else:
-                exit()
+                break
+
+        _loader = SnapshotGraphLoader(
+            _data,
+            loading_type=SnapshotGraphLoader.get_loading_type(NAME),
+            batch_size=55, step_size=1,
+            edge_batch_size=65536,
+            **SnapshotGraphLoader.get_kwargs_from_dataset(_dataset),
+        )
+        cprint("SnapshotGraphLoader valid w/ edge_batch_size", "green")
+        for i, _batch in enumerate(tqdm(_loader)):
+            cprint(_batch, "yellow")
+            print("neg_edge", _batch.neg_edge.sum())
+
+        cprint("Again, SnapshotGraphLoader valid w/ edge_batch_size", "green")
+        for i, _batch in enumerate(tqdm(_loader)):
+            cprint(_batch, "yellow")
+            print("neg_edge", _batch.neg_edge.sum())
 
     elif LOADER == "EdgeLoader":
         assert NAME == "ogbl-collab"

@@ -168,6 +168,7 @@ class DyGraphDataModule(LightningDataModule):
                 shuffle=True,
                 num_workers=self.h.num_workers,
                 transform_after_collation=T.ToSparseTensor(fill_cache=False) if self.h.use_sparse_tensor else None,
+                edge_batch_size=self.h.get("edge_batch_size"),
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes
             )
         elif self.h.dataloader_type == "EdgeLoader":
@@ -198,6 +199,7 @@ class DyGraphDataModule(LightningDataModule):
                 shuffle=False,
                 num_workers=self.h.num_workers,
                 transform_after_collation=T.ToSparseTensor(fill_cache=False) if self.h.use_sparse_tensor else None,
+                edge_batch_size=self.h.get("edge_batch_size"),
                 **SnapshotGraphLoader.get_kwargs_from_dataset(self.dataset),  # snapshot_dir, num_nodes, ...
             )
         elif dataloader_type == "NoLoader":
@@ -235,6 +237,8 @@ class DyGraphDataModule(LightningDataModule):
 
 if __name__ == '__main__':
 
+    from pytorch_lightning import seed_everything
+    seed_everything(32)
     # JODIEDataset/reddit, JODIEDataset/wikipedia, JODIEDataset/mooc, JODIEDataset/lastfm
     # ogbn-arxiv, ogbl-collab, ogbl-citation2
     # SingletonICEWS18, SingletonGDELT
@@ -259,6 +263,7 @@ if __name__ == '__main__':
         use_sparse_tensor=True,
         verbose=2,
         num_workers=0,
+        edge_batch_size=69001,
     )
     print(_dgdm)
     print("model_kwargs", _dgdm.model_kwargs)
