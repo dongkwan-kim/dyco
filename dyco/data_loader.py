@@ -56,6 +56,7 @@ class SnapshotGraphLoader(DataLoader):
         self.step_size = step_size
         self.split_edge_of_last_snapshot = split_edge_of_last_snapshot
 
+        self.shuffle = shuffle
         self.follow_batch = follow_batch or []
         self.exclude_keys = exclude_keys or []
         self.collater = Collater(follow_batch, exclude_keys)
@@ -141,6 +142,10 @@ class SnapshotGraphLoader(DataLoader):
     def snapshot_path(self):
         return os.path.join(self.snapshot_dir, "snapshots.pt")
 
+    def __len__(self):
+        # Cannot pre-compute __len__ if you use edge_batch_size.
+        return super().__len__() if self.edge_batch_size is None else None
+
     def __iter__(self):
         __iter__ = super().__iter__()
         if self.edge_batch_size is None:
@@ -151,7 +156,9 @@ class SnapshotGraphLoader(DataLoader):
                 edge_loader = EdgeLoader(
                     batch_size=self.edge_batch_size,
                     pos_edge_index=elem.pos_edge.t(),
-                    neg_edge_index=elem.neg_edge.t())
+                    neg_edge_index=elem.neg_edge.t(),
+                    shuffle=self.shuffle,
+                )
                 for edge_batch in edge_loader:
                     elem.pos_edge = edge_batch.pos_edge
                     elem.neg_edge = edge_batch.neg_edge
