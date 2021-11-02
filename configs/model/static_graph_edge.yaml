@@ -8,7 +8,7 @@ use_skip: False
 
 use_projector: True
 use_projector_bn: False
-lambda_proj: 0.00020206
+lambda_proj: 0.0000010504
 projected_channels: 100
 projector_infonce_temperature: 0.5
 projector_readout_types: mean
@@ -19,8 +19,11 @@ predictor_type: ${datamodule._predictor_type}
 metrics: ${datamodule._metrics}
 
 learning_rate: 0.001
-weight_decay: 1e-6
+weight_decay: 1e-8
 dropout_channels: 0.0
 
 # func_for_train_and_valid_outputs: replace_y_pred_neg_from_train_to_valid
 subname: ours
+
+pretraining_epoch: 0
+

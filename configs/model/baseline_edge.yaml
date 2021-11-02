@@ -1,0 +1,22 @@
+_target_: model.StaticGraphModel
+
+defaults:
+  - common_model.yaml
+
+use_projector: False
+use_projector_bn: False
+lambda_proj: 0
+projected_channels: 0
+projector_infonce_temperature: 0
+projector_readout_types: ""
+
+use_predictor: True
+lambda_pred: 1.0
+predictor_type: ${datamodule._predictor_type}
+metrics: ${datamodule._metrics}
+
+learning_rate: 0.001
+weight_decay: 1e-8
+dropout_channels: 0.0
+
+subname: baseline

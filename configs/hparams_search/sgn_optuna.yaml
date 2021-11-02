@@ -42,22 +42,21 @@ hydra:
     # https://hydra.cc/docs/plugins/optuna_sweeper/
     # https://github.com/facebookresearch/hydra/blob/02495f9c781615e2fe7ae5588e16f596fcec010c/plugins/hydra_optuna_sweeper/tests/test_optuna_sweeper_plugin.py#L49
     search_space:
-      model.dropout_channels:
-        type: float
-        low: 0.0
-        high: 0.4
-        step: 0.05
       model.projector_infonce_temperature:
         type: float
-        low: 0.3
-        high: 0.7
+        low: 0.4
+        high: 0.6
       model.lambda_proj:
         type: float
         log: True
-        low: 1e-7
+        low: 1e-9
         high: 0.1
+      datamodule.batch_size:
+        type: int
+        low: 5
+        high: 19
       model.weight_decay:
         type: float
         log: True
-        low: 1e-8
-        high: 1e-5
+        low: 1e-9
+        high: 1e-6

@@ -11,7 +11,7 @@ dataset_path: ${dataset_path} # dataset_path is specified in config.yaml
 dataloader_type: SnapshotGraphLoader
 eval_dataloader_type: EdgeLoader
 
-batch_size: 19  # max 55
+batch_size: 5  # max 55, 28, 19, 14, 11, 8, 7, 5
 eval_batch_size: 65536 # None
 
 step_size: 1
