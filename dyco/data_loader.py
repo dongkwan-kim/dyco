@@ -149,15 +149,17 @@ class SnapshotGraphLoader(DataLoader):
     def __iter__(self):
         __iter__ = super().__iter__()
         if self.edge_batch_size is None:
-            for idx, elem in enumerate(__iter__):
-                yield elem
+            raise NotImplementedError(
+                "Something wrong in negative sampling,"
+                "use edge_batch_size for now. Will I fix it? IDK")
         else:
             for idx, elem in enumerate(__iter__):
                 edge_loader = EdgeLoader(
                     batch_size=self.edge_batch_size,
                     pos_edge_index=elem.pos_edge.t(),
-                    neg_edge_index=elem.neg_edge.t(),
+                    neg_edge_index="trivial_random_samples",
                     shuffle=self.shuffle,
+                    num_nodes=elem.x.size(0),
                 )
                 for edge_batch in edge_loader:
                     elem.pos_edge = edge_batch.pos_edge
